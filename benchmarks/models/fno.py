@@ -34,6 +34,8 @@ class FNOWrapper:
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
         for epoch in range(epochs):
+            total_loss = 0.0
+
             for batch in loader:
                 k = fix_shape(batch["x"].to(self.device).float())
                 u = fix_shape(batch["y"].to(self.device).float())
@@ -44,6 +46,11 @@ class FNOWrapper:
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
+
+                total_loss += loss.item()
+
+            print(f"[FNO] Epoch {epoch+1}/{epochs} Loss: {total_loss:.6f}")
+
 
     def predict(self, x):
         self.model.eval()

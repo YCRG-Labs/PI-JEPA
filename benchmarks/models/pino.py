@@ -1,6 +1,6 @@
-from neuralop.models import FNO
 import torch
 import torch.nn as nn
+from neuralop.models import FNO
 
 
 def fix_shape(x):
@@ -18,7 +18,13 @@ def fix_shape(x):
 class PINOWrapper:
     def __init__(self, device):
         self.device = device
-        self.model = FNO(16, 16, 64, in_channels=1, out_channels=1).to(device)
+
+        self.model = FNO(
+            n_modes=(16, 16),
+            hidden_channels=64,
+            in_channels=1,
+            out_channels=1
+        ).to(device)
 
         self.loss_fn = nn.MSELoss()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
@@ -27,7 +33,9 @@ class PINOWrapper:
         self.model.train()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
-        for _ in range(epochs):
+        for epoch in range(epochs):
+            total_loss = 0.0
+
             for batch in loader:
                 k = fix_shape(batch["x"].to(self.device).float())
                 u = fix_shape(batch["y"].to(self.device).float())
@@ -38,6 +46,10 @@ class PINOWrapper:
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
+
+                total_loss += loss.item()
+
+            print(f"[PINO] Epoch {epoch+1}/{epochs} Loss: {total_loss:.6f}")
 
     def predict(self, x):
         self.model.eval()
