@@ -28,10 +28,15 @@ def get_device(device_str):
 def get_loaders(batch_size):
     from neuralop.data.datasets import load_darcy_flow_small
 
-    train_loader, test_loader, _ = load_darcy_flow_small(
+    train_loader, test_loaders, _ = load_darcy_flow_small(
         n_train=1000,
+        n_tests=[200],                 # REQUIRED
         batch_size=batch_size,
+        test_batch_sizes=[batch_size]  # REQUIRED
     )
+
+    # NeuralOp returns dict of test loaders → take first
+    test_loader = list(test_loaders.values())[0]
 
     return train_loader, test_loader
 
