@@ -149,7 +149,7 @@ def train_model(model, loader, epochs, lr, device):
                 k = fix_shape(k)
                 u = fix_shape(u)
 
-                x = k  # ✅ correct input
+                x = k 
 
                 model.train_step(x, u, lr)
 
@@ -168,7 +168,7 @@ def main():
     set_seed(config["seed"])
     device = get_device(config["device"])
 
-    print(f"\n🚀 Running on device: {device}")
+    print(f"\n Running on device: {device}")
 
     batch_size = config["dataset"]["batch_size"]
     epochs = config["training"]["epochs"]
