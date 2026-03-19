@@ -1,0 +1,10 @@
+[2026-03-19 14:11:14] Step 50 | jepa: 0.2167 | variance: 0.9621 | covariance: 0.0532 | physics: 1.0000 | total: 0.5407
+[2026-03-19 14:11:25] Step 100 | jepa: 0.1428 | variance: 0.9664 | covariance: 0.0452 | physics: 1.0000 | total: 0.4370
+[2026-03-19 14:11:36] Step 150 | jepa: 0.0994 | variance: 0.9702 | covariance: 0.0404 | physics: 1.0000 | total: 0.3801
+[2026-03-19 14:11:47] Step 200 | jepa: 0.0770 | variance: 0.9722 | covariance: 0.0463 | physics: 1.0000 | total: 0.3969
+[2026-03-19 14:11:57] Step 250 | jepa: 0.0616 | variance: 0.9734 | covariance: 0.0428 | physics: 1.0000 | total: 0.3745
+[2026-03-19 14:12:09] Step 300 | jepa: 0.0576 | variance: 0.9740 | covariance: 0.0439 | physics: 1.0000 | total: 0.3857
+[2026-03-19 14:12:20] Step 350 | jepa: 0.0510 | variance: 0.9747 | covariance: 0.0395 | physics: 1.0000 | total: 0.3673
+[2026-03-19 14:12:32] Step 400 | jepa: 0.0479 | variance: 0.9751 | covariance: 0.0420 | physics: 1.0000 | total: 0.3866
+[2026-03-19 14:12:45] Step 450 | jepa: 0.0462 | variance: 0.9750 | covariance: 0.0461 | physics: 1.0000 | total: 0.4157
+[2026-03-19 14:12:56] Step 500 | jepa: 0.0417 | variance: 0.9756 | covariance: 0.0392 | physics: 1.0000 | total: 0.3865

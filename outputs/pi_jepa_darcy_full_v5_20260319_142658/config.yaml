@@ -1,0 +1,94 @@
+data:
+  channels:
+    k: 1
+    u: 0
+  grid_size: 64
+  include_coeff: true
+  normalize: true
+  num_patches: 64
+  path: ./data/darcy/
+  sequence_length: 2
+  stride: 1
+decoder:
+  embed_dim: 384
+  image_size: 64
+  out_channels: 2
+  patch_size: 8
+ema:
+  schedule:
+    tau_end: 0.9995
+    tau_start: 0.99
+experiment:
+  deterministic: false
+  device: cpu
+  name: pi_jepa_darcy_full_v5
+  precision: fp32
+  seed: 42
+logging:
+  base_dir: ./outputs
+loss:
+  physics:
+    enabled: true
+    kro_exp: 2.0
+    krw_exp: 2.0
+    mu_o: 5.0
+    mu_w: 1.0
+    weight: 0.1
+  prediction:
+    normalize: true
+    weight: 1.0
+  regularization:
+    covariance:
+      weight: 0.01
+    variance:
+      gamma: 1.0
+      weight: 0.05
+  stagewise_prediction:
+    enabled: true
+    weights:
+      pressure_step: 1.0
+      transport_step: 1.0
+masking:
+  context_ratio: 0.65
+model:
+  encoder:
+    attention_dropout: 0.1
+    depth: 8
+    drop_path: 0.1
+    dropout: 0.1
+    embed_dim: 384
+    heads: 8
+    image_size: 64
+    mlp_ratio: 4.0
+    patch_size: 8
+    residual_scale: 1.0
+  latent_dim: 384
+  num_predictors: 1
+  predictor:
+    drop_path: 0.1
+    sequential: true
+    skip_connections: true
+    stages:
+    - depth: 4
+      heads: 6
+      hidden_dim: 384
+      name: pressure_step
+    - depth: 4
+      heads: 6
+      hidden_dim: 384
+      name: transport_step
+predictor: {}
+training:
+  batch_size: 16
+  epochs: 100
+  gradient:
+    clip_norm: 1.0
+  optim:
+    betas:
+    - 0.9
+    - 0.95
+    lr: 1e-4
+    weight_decay: 1e-5
+  rollout_training:
+    enabled: true
+    weight_decay_per_step: 0.9

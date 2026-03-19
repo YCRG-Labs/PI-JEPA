@@ -1,0 +1,135 @@
+experiment:
+  name: pi_jepa_darcy_full_v5
+  seed: 42
+  device: cpu
+  precision: fp32
+  deterministic: false
+
+# -------------------------
+# DATA
+# -------------------------
+data:
+  path: ./data/darcy/
+  sequence_length: 2
+  stride: 1
+  normalize: true
+  include_coeff: true
+  num_patches: 64
+  grid_size: 64
+
+  channels:
+    u: 0
+    k: 1
+
+# -------------------------
+# MODEL
+# -------------------------
+model:
+  latent_dim: 384
+  num_predictors: 1
+
+  encoder:
+    embed_dim: 384
+    patch_size: 8
+    image_size: 64
+    depth: 8
+    heads: 8
+    mlp_ratio: 4.0
+    dropout: 0.1
+    attention_dropout: 0.1
+    drop_path: 0.1
+    residual_scale: 1.0
+
+  predictor:
+    stages:
+      - name: pressure_step
+        depth: 4
+        heads: 6
+        hidden_dim: 384
+
+      - name: transport_step
+        depth: 4
+        heads: 6
+        hidden_dim: 384
+
+    drop_path: 0.1
+    sequential: true
+    skip_connections: true
+
+# -------------------------
+# DECODER
+# -------------------------
+decoder:
+  embed_dim: 384
+  out_channels: 2
+  image_size: 64
+  patch_size: 8
+
+# -------------------------
+# EMA
+# -------------------------
+ema:
+  schedule:
+    tau_start: 0.99
+    tau_end: 0.9995
+
+# -------------------------
+# MASKING
+# -------------------------
+masking:
+  context_ratio: 0.65
+
+# -------------------------
+# TRAINING
+# -------------------------
+training:
+  epochs: 100
+  batch_size: 16
+
+  optim:
+    lr: 1e-4
+    weight_decay: 1e-5
+    betas: [0.9, 0.95]
+
+  gradient:
+    clip_norm: 1.0
+
+  rollout_training:
+    enabled: true
+    weight_decay_per_step: 0.9
+
+# -------------------------
+# LOSS
+# -------------------------
+loss:
+  prediction:
+    weight: 1.0
+    normalize: true
+
+  stagewise_prediction:
+    enabled: true
+    weights:
+      pressure_step: 1.0
+      transport_step: 1.0
+
+  physics:
+    enabled: true
+    weight: 0.1
+    mu_w: 1.0
+    mu_o: 5.0
+    krw_exp: 2.0
+    kro_exp: 2.0
+
+  regularization:
+    variance:
+      weight: 0.05
+      gamma: 1.0
+
+    covariance:
+      weight: 0.01
+
+# -------------------------
+# LOGGING
+# -------------------------
+logging:
+  base_dir: ./outputs
