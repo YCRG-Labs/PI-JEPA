@@ -5,8 +5,6 @@ import random
 import numpy as np
 import pandas as pd
 
-from torch.utils.data import DataLoader
-
 
 # =========================
 # Utils
@@ -25,40 +23,17 @@ def get_device(device_str):
 
 
 # =========================
-# Synthetic Darcy Loader (NO FILES)
+# Darcy Loader (NeuralOp)
 # =========================
-def get_loader(split, batch_size):
-    if split == "train":
-        N = 50
-    else:
-        N = 20
+def get_loaders(batch_size):
+    from neuralop.data.datasets import load_darcy_flow_small
 
-    T = 5
-    H = W = 64
-
-    # mimic Darcy structure
-    u = torch.randn(N, T, H, W)
-    k = torch.randn(N, 1, H, W)
-
-    samples = []
-
-    for i in range(N):
-        for t in range(T - 1):
-            u_t = u[i, t]
-            u_tp1 = u[i, t + 1]
-
-            k_i = k[i][0]
-
-            x_t = torch.stack([u_t, k_i], dim=0)
-            x_tp1 = torch.stack([u_tp1, k_i], dim=0)
-
-            samples.append((x_t, x_tp1))
-
-    return DataLoader(
-        samples,
+    train_loader, test_loader, _ = load_darcy_flow_small(
+        n_train=1000,
         batch_size=batch_size,
-        shuffle=(split == "train")
     )
+
+    return train_loader, test_loader
 
 
 # =========================
@@ -94,7 +69,7 @@ def get_model(name, device):
 
 
 # =========================
-# Simple L2 Metric (no dependency)
+# Metric
 # =========================
 def compute_l2(pred, target):
     return torch.norm(pred - target) / torch.norm(target)
@@ -109,14 +84,16 @@ def evaluate(model, loader, device):
     count = 0
 
     with torch.no_grad():
-        for x, y in loader:
-            x = x.to(device)
-            y = y.to(device)
+        for k, u in loader:  # IMPORTANT: NeuralOp format
+            k = k.to(device)
+            u = u.to(device)
 
-            pred = model.predict(x)
-            pred = pred.detach()
+            # Convert to (u, k) format your models expect
+            x = torch.stack([u, k], dim=1)
 
-            error = compute_l2(pred, y)
+            pred = model.predict(x).detach()
+
+            error = compute_l2(pred, u)
 
             total_error += error.item()
             count += 1
@@ -125,18 +102,21 @@ def evaluate(model, loader, device):
 
 
 # =========================
-# Training Wrapper
+# Training
 # =========================
-def train_model(model, loader, epochs, lr):
-    model.train_model(
-        loader,
-        epochs=epochs,
-        lr=lr
-    )
+def train_model(model, loader, epochs, lr, device):
+    for epoch in range(epochs):
+        for k, u in loader:
+            k = k.to(device)
+            u = u.to(device)
+
+            x = torch.stack([u, k], dim=1)
+
+            model.train_step(x, u, lr)
 
 
 # =========================
-# Main Runner
+# Main
 # =========================
 def main():
     with open("benchmarks/config.yaml", "r") as f:
@@ -147,15 +127,14 @@ def main():
 
     print(f"\n🚀 Running on device: {device}")
 
-    results = []
-
     batch_size = config["dataset"]["batch_size"]
     epochs = config["training"]["epochs"]
     lr = config["training"]["learning_rate"]
     model_names = config["models"]
 
-    train_loader = get_loader("train", batch_size)
-    test_loader = get_loader("test", batch_size)
+    train_loader, test_loader = get_loaders(batch_size)
+
+    results = []
 
     results_file = config["output"]["results_file"]
     os.makedirs(os.path.dirname(results_file), exist_ok=True)
@@ -165,7 +144,7 @@ def main():
 
         model = get_model(model_name, device)
 
-        train_model(model, train_loader, epochs, lr)
+        train_model(model, train_loader, epochs, lr, device)
 
         error = evaluate(model, test_loader, device)
 
