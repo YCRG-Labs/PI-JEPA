@@ -2,6 +2,18 @@ import torch
 import torch.nn as nn
 
 
+def fix_shape(x):
+    if x.ndim == 3:
+        x = x.unsqueeze(1)
+    elif x.ndim == 4 and x.shape[-1] == 1:
+        x = x.permute(0, 3, 1, 2)
+    elif x.ndim == 4 and x.shape[1] == 1:
+        pass
+    else:
+        raise ValueError(f"Invalid shape: {x.shape}")
+    return x.contiguous()
+
+
 class UNet(nn.Module):
     def __init__(self):
         super().__init__()
@@ -28,7 +40,7 @@ class UNetWrapper:
         self.model.train()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
-        for epoch in range(epochs):
+        for _ in range(epochs):
             for batch in loader:
                 k = fix_shape(batch["x"].to(self.device).float())
                 u = fix_shape(batch["y"].to(self.device).float())

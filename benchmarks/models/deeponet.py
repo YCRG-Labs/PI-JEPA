@@ -2,26 +2,35 @@ import torch
 import torch.nn as nn
 
 
+def fix_shape(x):
+    if x.ndim == 3:
+        x = x.unsqueeze(1)
+    elif x.ndim == 4 and x.shape[-1] == 1:
+        x = x.permute(0, 3, 1, 2)
+    elif x.ndim == 4 and x.shape[1] == 1:
+        pass
+    else:
+        raise ValueError(f"Invalid shape: {x.shape}")
+    return x.contiguous()
+
+
 class DeepONet(nn.Module):
     def __init__(self):
         super().__init__()
         self.branch = nn.Sequential(nn.Linear(64*64, 256), nn.ReLU(), nn.Linear(256, 128))
         self.trunk = nn.Sequential(nn.Linear(2, 128), nn.ReLU(), nn.Linear(128, 128))
-        self.fc = nn.Linear(128, 1)
 
     def forward(self, x):
         B, C, H, W = x.shape
-        x_flat = x.view(B, -1)
+        branch = self.branch(x.view(B, -1))
 
-        branch = self.branch(x_flat)
-
-        coords = torch.stack(torch.meshgrid(
-            torch.linspace(0, 1, H),
-            torch.linspace(0, 1, W),
+        grid = torch.stack(torch.meshgrid(
+            torch.linspace(0, 1, H, device=x.device),
+            torch.linspace(0, 1, W, device=x.device),
             indexing='ij'
-        ), dim=-1).view(-1, 2).to(x.device)
+        ), dim=-1).view(-1, 2)
 
-        trunk = self.trunk(coords)
+        trunk = self.trunk(grid)
         out = torch.einsum("bi,ni->bn", branch, trunk)
         return out.view(B, 1, H, W)
 
