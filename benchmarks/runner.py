@@ -7,12 +7,6 @@ import pandas as pd
 
 from torch.utils.data import DataLoader
 
-# Dataset
-from data.dataset import DarcyDataset
-
-# Metrics
-from eval.metrics import compute_l2
-
 
 # =========================
 # Utils
@@ -31,20 +25,39 @@ def get_device(device_str):
 
 
 # =========================
-# Dataset Loader
+# Synthetic Darcy Loader (NO FILES)
 # =========================
-def get_loader(split, data_config, batch_size):
-    dataset = DarcyDataset(
-        path=data_config["data"]["path"],
-        config=data_config,
-        split=split
-    )
+def get_loader(split, batch_size):
+    if split == "train":
+        N = 50
+    else:
+        N = 20
+
+    T = 5
+    H = W = 64
+
+    # mimic Darcy structure
+    u = torch.randn(N, T, H, W)
+    k = torch.randn(N, 1, H, W)
+
+    samples = []
+
+    for i in range(N):
+        for t in range(T - 1):
+            u_t = u[i, t]
+            u_tp1 = u[i, t + 1]
+
+            k_i = k[i][0]
+
+            x_t = torch.stack([u_t, k_i], dim=0)
+            x_tp1 = torch.stack([u_tp1, k_i], dim=0)
+
+            samples.append((x_t, x_tp1))
 
     return DataLoader(
-        dataset,
+        samples,
         batch_size=batch_size,
-        shuffle=(split == "train"),
-        num_workers=0
+        shuffle=(split == "train")
     )
 
 
@@ -52,15 +65,7 @@ def get_loader(split, data_config, batch_size):
 # Model Factory
 # =========================
 def get_model(name, device):
-    if name == "pi_jepa":
-        from benchmarks.wrappers.pi_jepa_wrapper import PIJEPAWrapper
-        return PIJEPAWrapper(device=device)
-
-    elif name == "unet":
-        from benchmarks.models.unet import UNetWrapper
-        return UNetWrapper(device=device)
-
-    elif name == "fno":
+    if name == "fno":
         from benchmarks.models.fno import FNOWrapper
         return FNOWrapper(device=device)
 
@@ -86,6 +91,13 @@ def get_model(name, device):
 
     else:
         raise ValueError(f"Unknown model: {name}")
+
+
+# =========================
+# Simple L2 Metric (no dependency)
+# =========================
+def compute_l2(pred, target):
+    return torch.norm(pred - target) / torch.norm(target)
 
 
 # =========================
@@ -127,37 +139,27 @@ def train_model(model, loader, epochs, lr):
 # Main Runner
 # =========================
 def main():
-    # Load configs
-    with open("configs/darcy.yaml", "r") as f:
-        data_config = yaml.safe_load(f)
-
     with open("benchmarks/config.yaml", "r") as f:
-        bench_config = yaml.safe_load(f)
+        config = yaml.safe_load(f)
 
-    # Setup
-    set_seed(bench_config["seed"])
-    device = get_device(bench_config["device"])
+    set_seed(config["seed"])
+    device = get_device(config["device"])
 
     print(f"\n🚀 Running on device: {device}")
 
     results = []
-    model_names = bench_config["models"]
 
-    batch_size = bench_config["dataset"]["batch_size"]
-    epochs = bench_config["training"]["epochs"]
-    lr = bench_config["training"]["learning_rate"]
+    batch_size = config["dataset"]["batch_size"]
+    epochs = config["training"]["epochs"]
+    lr = config["training"]["learning_rate"]
+    model_names = config["models"]
 
-    # Load datasets
-    train_loader = get_loader("train", data_config, batch_size)
-    test_loader = get_loader("test", data_config, batch_size)
+    train_loader = get_loader("train", batch_size)
+    test_loader = get_loader("test", batch_size)
 
-    # Output path
-    results_file = bench_config["output"]["results_file"]
+    results_file = config["output"]["results_file"]
     os.makedirs(os.path.dirname(results_file), exist_ok=True)
 
-    # =========================
-    # Loop
-    # =========================
     for model_name in model_names:
         print(f"\n===== Model: {model_name} =====")
 
@@ -176,7 +178,7 @@ def main():
 
         pd.DataFrame(results).to_csv(results_file, index=False)
 
-    print(f"Final results saved to {results_file}")
+    print(f"\n✅ Final results saved to {results_file}")
 
 
 if __name__ == "__main__":
