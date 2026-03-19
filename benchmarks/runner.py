@@ -203,7 +203,6 @@ def main():
         pd.DataFrame(results).to_csv(results_file, index=False)
 
     print(f"Final results saved to {results_file}")
-print(f"✔ Finished {model_name}")
 
 if __name__ == "__main__":
     main()
