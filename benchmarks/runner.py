@@ -30,12 +30,11 @@ def get_loaders(batch_size):
 
     train_loader, test_loaders, _ = load_darcy_flow_small(
         n_train=1000,
-        n_tests=[200],                 # REQUIRED
+        n_tests=[200],
         batch_size=batch_size,
-        test_batch_sizes=[batch_size]  # REQUIRED
+        test_batch_sizes=[batch_size]
     )
 
-    # NeuralOp returns dict of test loaders → take first
     test_loader = list(test_loaders.values())[0]
 
     return train_loader, test_loader
@@ -89,11 +88,12 @@ def evaluate(model, loader, device):
     count = 0
 
     with torch.no_grad():
-        for k, u in loader:  # IMPORTANT: NeuralOp format
-            k = k.to(device)
-            u = u.to(device)
+        for batch in loader:
+            # NeuralOp format
+            k = batch["x"].to(device)
+            u = batch["y"].to(device)
 
-            # Convert to (u, k) format your models expect
+            # Convert to (u, k)
             x = torch.stack([u, k], dim=1)
 
             pred = model.predict(x).detach()
@@ -107,17 +107,28 @@ def evaluate(model, loader, device):
 
 
 # =========================
-# Training
+# Training (wrapper-safe)
 # =========================
 def train_model(model, loader, epochs, lr, device):
-    for epoch in range(epochs):
-        for k, u in loader:
-            k = k.to(device)
-            u = u.to(device)
+    # Case 1: wrapper already has training loop
+    if hasattr(model, "train_model"):
+        model.train_model(loader, epochs=epochs, lr=lr)
+        return
 
-            x = torch.stack([u, k], dim=1)
+    # Case 2: manual training loop
+    if hasattr(model, "train_step"):
+        model.train()
+        for epoch in range(epochs):
+            for batch in loader:
+                k = batch["x"].to(device)
+                u = batch["y"].to(device)
 
-            model.train_step(x, u, lr)
+                x = torch.stack([u, k], dim=1)
+
+                model.train_step(x, u, lr)
+        return
+
+    raise RuntimeError("Model has no train_model or train_step method")
 
 
 # =========================
@@ -149,8 +160,10 @@ def main():
 
         model = get_model(model_name, device)
 
+        # Train
         train_model(model, train_loader, epochs, lr, device)
 
+        # Evaluate
         error = evaluate(model, test_loader, device)
 
         print(f"Result → Model: {model_name}, Error: {error:.6f}")
