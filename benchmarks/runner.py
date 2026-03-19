@@ -73,6 +73,24 @@ def get_model(name, device):
 
 
 # =========================
+# Shape Fixer (CRITICAL)
+# =========================
+def fix_shape(x):
+    """
+    Ensure tensor is (B, C, H, W)
+    """
+    if x.ndim == 3:
+        x = x.unsqueeze(1)
+
+    elif x.ndim == 5:
+        x = x.squeeze(-1)
+
+    assert x.ndim == 4, f"Expected 4D tensor, got {x.shape}"
+
+    return x
+
+
+# =========================
 # Metric
 # =========================
 def compute_l2(pred, target):
@@ -89,14 +107,18 @@ def evaluate(model, loader, device):
 
     with torch.no_grad():
         for batch in loader:
-            # NeuralOp format
-            k = batch["x"].to(device)
-            u = batch["y"].to(device)
+            k = batch["x"].to(device).float()
+            u = batch["y"].to(device).float()
 
-            # Convert to (u, k)
-            x = torch.stack([u, k], dim=1)
+            k = fix_shape(k)
+            u = fix_shape(u)
 
-            pred = model.predict(x).detach()
+            # ✅ Correct input
+            x = k
+
+            pred = model.predict(x)
+
+            pred = fix_shape(pred)
 
             error = compute_l2(pred, u)
 
@@ -118,14 +140,19 @@ def train_model(model, loader, epochs, lr, device):
     # Case 2: manual training loop
     if hasattr(model, "train_step"):
         model.train()
+
         for epoch in range(epochs):
             for batch in loader:
-                k = batch["x"].to(device)
-                u = batch["y"].to(device)
+                k = batch["x"].to(device).float()
+                u = batch["y"].to(device).float()
 
-                x = torch.stack([u, k], dim=1)
+                k = fix_shape(k)
+                u = fix_shape(u)
+
+                x = k  # ✅ correct input
 
                 model.train_step(x, u, lr)
+
         return
 
     raise RuntimeError("Model has no train_model or train_step method")
