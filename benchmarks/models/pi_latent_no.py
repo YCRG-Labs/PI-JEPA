@@ -22,19 +22,20 @@ class PILatentNOWrapper:
         self.model = PILatentNO().to(device)
 
     def train_model(self, loader, epochs, lr):
-        opt = torch.optim.Adam(self.model.parameters(), lr=lr)
-        loss_fn = nn.MSELoss()
+       for batch in loader:
+        x = batch["x"].to(self.device)  # permeability (k)
+        y = batch["y"].to(self.device)  # solution (u)
 
-        for _ in range(epochs):
-            for x, y in loader:
-                x, y = x.to(self.device), y.to(self.device)
+        # Convert to (u, k) format
+        x = torch.stack([y, x], dim=1)
 
-                pred = self.model(x)
-                loss = loss_fn(pred, y)
+        pred = self.model(x)
 
-                opt.zero_grad()
-                loss.backward()
-                opt.step()
+        loss = self.loss_fn(pred, y)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
 
     def predict(self, x):
         return self.model(x)

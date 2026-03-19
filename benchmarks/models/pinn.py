@@ -24,21 +24,20 @@ class PINNWrapper:
         self.model = PINN().to(device)
 
     def train_model(self, loader, epochs, lr):
-        opt = torch.optim.Adam(self.model.parameters(), lr=lr)
+       for batch in loader:
+        x = batch["x"].to(self.device)  # permeability (k)
+        y = batch["y"].to(self.device)  # solution (u)
 
-        for _ in range(epochs):
-            for x, y in loader:
-                B, C, H, W = x.shape
+        # Convert to (u, k) format
+        x = torch.stack([y, x], dim=1)
 
-                coords = torch.rand(B * H * W, 2).to(self.device)
-                pred = self.model(coords)
+        pred = self.model(x)
 
-                loss = pred.pow(2).mean()
+        loss = self.loss_fn(pred, y)
 
-                opt.zero_grad()
-                loss.backward()
-                opt.step()
-
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
     def predict(self, x):
         B, C, H, W = x.shape
         coords = torch.rand(B * H * W, 2).to(self.device)
