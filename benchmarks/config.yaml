@@ -2,10 +2,6 @@ experiment_name: pi_jepa_benchmark
 seed: 42
 device: cuda
 
-data:
-  path: data        # <-- IMPORTANT: folder with train.npz / test.npz
-  normalize: false
-
 dataset:
   batch_size: 8
 

@@ -4,7 +4,6 @@ import torch
 import random
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 
 from torch.utils.data import DataLoader
 
@@ -32,18 +31,18 @@ def get_device(device_str):
 
 
 # =========================
-# Dataset Loader (FIXED)
+# Dataset Loader
 # =========================
-def get_loader(split, config):
+def get_loader(split, data_config, batch_size):
     dataset = DarcyDataset(
-        path=config["data"]["path"],
-        config=config,
+        path=data_config["data"]["path"],
+        config=data_config,
         split=split
     )
 
     return DataLoader(
         dataset,
-        batch_size=config["dataset"]["batch_size"],
+        batch_size=batch_size,
         shuffle=(split == "train"),
         num_workers=0
     )
@@ -116,11 +115,11 @@ def evaluate(model, loader, device):
 # =========================
 # Training Wrapper
 # =========================
-def train_model(model, loader, config):
+def train_model(model, loader, epochs, lr):
     model.train_model(
         loader,
-        epochs=config["training"]["epochs"],
-        lr=config["training"]["learning_rate"]
+        epochs=epochs,
+        lr=lr
     )
 
 
@@ -128,26 +127,32 @@ def train_model(model, loader, config):
 # Main Runner
 # =========================
 def main():
-    # Load config
+    # Load configs
+    with open("configs/darcy.yaml", "r") as f:
+        data_config = yaml.safe_load(f)
+
     with open("benchmarks/config.yaml", "r") as f:
-        config = yaml.safe_load(f)
+        bench_config = yaml.safe_load(f)
 
     # Setup
-    set_seed(config["seed"])
-    device = get_device(config["device"])
+    set_seed(bench_config["seed"])
+    device = get_device(bench_config["device"])
 
     print(f"\n🚀 Running on device: {device}")
 
     results = []
+    model_names = bench_config["models"]
 
-    model_names = config["models"]
+    batch_size = bench_config["dataset"]["batch_size"]
+    epochs = bench_config["training"]["epochs"]
+    lr = bench_config["training"]["learning_rate"]
 
-    # Load datasets ONCE
-    train_loader = get_loader("train", config)
-    test_loader = get_loader("test", config)
+    # Load datasets
+    train_loader = get_loader("train", data_config, batch_size)
+    test_loader = get_loader("test", data_config, batch_size)
 
     # Output path
-    results_file = config["output"]["results_file"]
+    results_file = bench_config["output"]["results_file"]
     os.makedirs(os.path.dirname(results_file), exist_ok=True)
 
     # =========================
@@ -156,32 +161,23 @@ def main():
     for model_name in model_names:
         print(f"\n===== Model: {model_name} =====")
 
-        # Model
         model = get_model(model_name, device)
 
-        # Train
-        train_model(model, train_loader, config)
+        train_model(model, train_loader, epochs, lr)
 
-        # Evaluate
         error = evaluate(model, test_loader, device)
 
         print(f"Result → Model: {model_name}, Error: {error:.6f}")
 
-        result_row = {
+        results.append({
             "model": model_name,
             "error": error
-        }
+        })
 
-        results.append(result_row)
-
-        # Save progressively
         pd.DataFrame(results).to_csv(results_file, index=False)
 
     print(f"Final results saved to {results_file}")
 
 
-# =========================
-# Entry
-# =========================
 if __name__ == "__main__":
     main()
