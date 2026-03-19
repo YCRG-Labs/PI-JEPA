@@ -32,11 +32,21 @@ def get_device(device_str):
 
 
 # =========================
-# Dataset Loader
+# Dataset Loader (FIXED)
 # =========================
-def get_loader(num_samples, batch_size):
-    dataset = DarcyDataset(num_samples=num_samples)
-    return DataLoader(dataset, batch_size=batch_size, shuffle=True)
+def get_loader(split, config):
+    dataset = DarcyDataset(
+        path=config["data"]["path"],
+        config=config,
+        split=split
+    )
+
+    return DataLoader(
+        dataset,
+        batch_size=config["dataset"]["batch_size"],
+        shuffle=(split == "train"),
+        num_workers=0
+    )
 
 
 # =========================
@@ -93,8 +103,6 @@ def evaluate(model, loader, device):
             y = y.to(device)
 
             pred = model.predict(x)
-
-            # Safety: detach just in case
             pred = pred.detach()
 
             error = compute_l2(pred, y)
@@ -132,15 +140,13 @@ def main():
 
     results = []
 
-    train_sizes = config["dataset"]["train_samples"]
-    test_size = config["dataset"]["test_samples"]
-    batch_size = config["dataset"]["batch_size"]
     model_names = config["models"]
 
-    # Test loader (fixed)
-    test_loader = get_loader(test_size, batch_size)
+    # Load datasets ONCE
+    train_loader = get_loader("train", config)
+    test_loader = get_loader("test", config)
 
-    # Ensure output dir exists early
+    # Output path
     results_file = config["output"]["results_file"]
     os.makedirs(os.path.dirname(results_file), exist_ok=True)
 
@@ -150,32 +156,26 @@ def main():
     for model_name in model_names:
         print(f"\n===== Model: {model_name} =====")
 
-        for n in train_sizes:
-            print(f"\n--- Training with {n} samples ---")
+        # Model
+        model = get_model(model_name, device)
 
-            # Data
-            train_loader = get_loader(n, batch_size)
+        # Train
+        train_model(model, train_loader, config)
 
-            # Model
-            model = get_model(model_name, device)
+        # Evaluate
+        error = evaluate(model, test_loader, device)
 
-            # Train
-            train_model(model, train_loader, config)
+        print(f"Result → Model: {model_name}, Error: {error:.6f}")
 
-            # Evaluate
-            error = evaluate(model, test_loader, device)
+        result_row = {
+            "model": model_name,
+            "error": error
+        }
 
-            print(f"Result → Model: {model_name}, Samples: {n}, Error: {error:.6f}")
+        results.append(result_row)
 
-            result_row = {
-                "model": model_name,
-                "samples": n,
-                "error": error
-            }
-
-            results.append(result_row)
-
-            pd.DataFrame(results).to_csv(results_file, index=False)
+        # Save progressively
+        pd.DataFrame(results).to_csv(results_file, index=False)
 
     print(f"Final results saved to {results_file}")
 
