@@ -5,13 +5,12 @@ import torch.nn as nn
 class PINN(nn.Module):
     def __init__(self):
         super().__init__()
-
         self.net = nn.Sequential(
             nn.Linear(2, 128),
             nn.Tanh(),
             nn.Linear(128, 128),
             nn.Tanh(),
-            nn.Linear(128, 3)
+            nn.Linear(128, 1)
         )
 
     def forward(self, coords):
@@ -22,27 +21,27 @@ class PINNWrapper:
     def __init__(self, device):
         self.device = device
         self.model = PINN().to(device)
+        self.loss_fn = nn.MSELoss()
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
 
     def train_model(self, loader, epochs, lr):
-       for batch in loader:
-        x = batch["x"].to(self.device)  # permeability (k)
-        y = batch["y"].to(self.device)  # solution (u)
+        self.model.train()
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
-        # Convert to (u, k) format
-        x = torch.stack([y, x], dim=1)
+        for _ in range(epochs):
+            for batch in loader:
+                u = batch["y"].to(self.device).float()
+                B, _, H, W = u.shape
 
-        pred = self.model(x)
+                coords = torch.rand(B*H*W, 2).to(self.device)
+                target = u.view(-1, 1)
 
-        loss = self.loss_fn(pred, y)
+                pred = self.model(coords)
+                loss = self.loss_fn(pred, target)
 
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
+
     def predict(self, x):
-        B, C, H, W = x.shape
-        coords = torch.rand(B * H * W, 2).to(self.device)
-        out = self.model(coords)
-        return out.view(B, 3, H, W)
-
-    def eval(self):
-        self.model.eval()
+        return x  # placeholder
