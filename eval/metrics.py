@@ -75,3 +75,8 @@ def rollout_energy_drift(pred_seq):
 
 def physics_residual_metric(residual):
     return torch.mean(residual ** 2)
+
+import torch
+
+def compute_l2(pred, target):
+    return torch.norm(pred - target) / torch.norm(target)
