@@ -24,7 +24,6 @@ class Decoder(nn.Module):
 
         B, N, D = z_full.shape
 
-        # 🔥 dynamically infer grid size
         n = int(math.sqrt(N))
 
         if n * n != N:

@@ -26,16 +26,14 @@ class PIJEPA(nn.Module):
         self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         nn.init.normal_(self.mask_token, std=0.02)
 
-    # =========================
-    # STRICT INPUT MASKING
-    # =========================
+
     def mask_input(self, x, target_indices):
         B, C, H, W = x.shape
         grid_size = H // self.patch_size
 
         mask = torch.ones(B, grid_size * grid_size, device=x.device)
 
-        mask = mask.scatter(  # ✅ FIXED
+        mask = mask.scatter( 
             1,
             target_indices,
             torch.zeros_like(target_indices, dtype=mask.dtype)

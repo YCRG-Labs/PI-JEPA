@@ -89,9 +89,6 @@ class Stage(nn.Module):
         return z_target
 
 
-# =========================
-# MAIN PREDICTOR (FIXED)
-# =========================
 class Predictor(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -137,7 +134,6 @@ class Predictor(nn.Module):
         for i, stage in enumerate(self.stages):
             z_delta = stage(z_target, z_context)
 
-            # residual update (VERY IMPORTANT)
             z_target = z_target + z_delta
 
             stage_outputs[f"stage_{i}"] = z_target
