@@ -18,9 +18,6 @@ from utils.checkpoint import save_checkpoint
 from neuralop.data.datasets import load_darcy_flow_small
 
 
-# ---------------------------
-# Device / Seed
-# ---------------------------
 def get_device(cfg):
     if cfg["experiment"].get("device", None) is not None:
         return torch.device(cfg["experiment"]["device"])
@@ -45,10 +42,6 @@ def set_seed(seed, deterministic=False):
     torch.backends.cudnn.deterministic = deterministic
     torch.backends.cudnn.benchmark = not deterministic
 
-
-# ---------------------------
-# Model
-# ---------------------------
 def build_model(cfg, device):
     patch_size = cfg["model"]["encoder"]["patch_size"]
 
@@ -79,9 +72,6 @@ def build_model(cfg, device):
     return model, decoder
 
 
-# ---------------------------
-# Data
-# ---------------------------
 def build_dataloader(cfg):
     train_loader, _, _ = load_darcy_flow_small(
         n_train=1000,
@@ -94,9 +84,6 @@ def build_dataloader(cfg):
     return train_loader
 
 
-# ---------------------------
-# EMA
-# ---------------------------
 def get_ema_tau(cfg, epoch):
     tau_start = cfg["ema"]["schedule"]["tau_start"]
     tau_end = cfg["ema"]["schedule"]["tau_end"]
@@ -107,9 +94,6 @@ def get_ema_tau(cfg, epoch):
     return tau
 
 
-# ---------------------------
-# Masking
-# ---------------------------
 def sample_block_mask_indices(B, grid_size, device, context_ratio):
     context_idx = []
     target_idx = []
@@ -135,9 +119,6 @@ def sample_block_mask_indices(B, grid_size, device, context_ratio):
     return torch.stack(context_idx).to(device), torch.stack(target_idx).to(device)
 
 
-# ---------------------------
-# Training
-# ---------------------------
 def train():
     cfg = load_config("configs/darcy.yaml")
 
@@ -202,7 +183,7 @@ def train():
             z_full = model.encode(x_input)
 
             z_recon = z_full.clone()
-            z_recon = z_recon.scatter(   # ✅ FIX HERE
+            z_recon = z_recon.scatter(   
                 1,
                 target_idx.unsqueeze(-1).expand_as(z_pred),
                 z_pred
