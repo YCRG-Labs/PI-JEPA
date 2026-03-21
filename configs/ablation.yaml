@@ -1,0 +1,88 @@
+base_config: configs/darcy.yaml
+
+ablations:
+
+  no_physics:
+    loss:
+      physics:
+        enabled: false
+
+  no_stagewise:
+    loss:
+      stagewise_prediction:
+        enabled: false
+
+  no_splitting:
+    model:
+      predictor:
+        stages:
+          - name: unified
+            depth: 6
+            heads: 6
+            hidden_dim: 384
+
+  no_ema:
+    ema:
+      enabled: false
+
+  no_masking:
+    masking:
+      context_ratio: 1.0
+
+  weak_physics:
+    loss:
+      physics:
+        weight: 0.01
+
+  strong_physics:
+    loss:
+      physics:
+        weight: 1.0
+
+  low_data:
+    data:
+      loader:
+        subset_fraction: 0.1
+
+  extreme_low_data:
+    data:
+      loader:
+        subset_fraction: 0.02
+
+  shallow_encoder:
+    model:
+      encoder:
+        depth: 4
+
+  deep_encoder:
+    model:
+      encoder:
+        depth: 12
+
+  large_latent:
+    model:
+      latent_dim: 768
+
+  no_rollout_training:
+    training:
+      rollout_training:
+        enabled: false
+
+  long_rollout_training:
+    training:
+      rollout_training:
+        steps: [1, 2, 3, 4, 5]
+
+execution:
+  strategy: grid
+  run_all: true
+  max_parallel: 2
+
+  tracking:
+    aggregate_results: true
+
+  comparison:
+    primary_metric: mse
+    secondary_metrics:
+      - error_growth
+      - residual_mean

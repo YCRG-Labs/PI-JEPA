@@ -5,9 +5,6 @@ experiment:
   precision: fp32
   deterministic: false
 
-# -------------------------
-# DATA
-# -------------------------
 data:
   path: ./data/darcy/
   sequence_length: 2
@@ -21,9 +18,6 @@ data:
     u: 0
     k: 1
 
-# -------------------------
-# MODEL
-# -------------------------
 model:
   latent_dim: 384
   num_predictors: 1
@@ -56,32 +50,20 @@ model:
     sequential: true
     skip_connections: true
 
-# -------------------------
-# DECODER
-# -------------------------
 decoder:
   embed_dim: 384
   out_channels: 2
   image_size: 64
   patch_size: 8
 
-# -------------------------
-# EMA
-# -------------------------
 ema:
   schedule:
     tau_start: 0.99
     tau_end: 0.9995
 
-# -------------------------
-# MASKING
-# -------------------------
 masking:
   context_ratio: 0.65
 
-# -------------------------
-# TRAINING
-# -------------------------
 training:
   epochs: 100
   batch_size: 16
@@ -98,9 +80,6 @@ training:
     enabled: true
     weight_decay_per_step: 0.9
 
-# -------------------------
-# LOSS
-# -------------------------
 loss:
   prediction:
     weight: 1.0
@@ -128,8 +107,5 @@ loss:
     covariance:
       weight: 0.01
 
-# -------------------------
-# LOGGING
-# -------------------------
 logging:
   base_dir: ./outputs
