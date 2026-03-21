@@ -5,7 +5,10 @@ from .darcy import (
     grad_y,
     divergence,
     mobility,
+    BrooksCoreyModel,
+    TwoPhaseDarcyPhysics,
 )
+from .reactive_transport import ReactiveTransportPhysics
 
 __all__ = [
     "physics_loss_pressure",
@@ -14,4 +17,7 @@ __all__ = [
     "grad_y",
     "divergence",
     "mobility",
+    "BrooksCoreyModel",
+    "TwoPhaseDarcyPhysics",
+    "ReactiveTransportPhysics",
 ]

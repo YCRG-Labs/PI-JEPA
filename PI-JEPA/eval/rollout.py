@@ -1,4 +1,58 @@
+"""Rollout evaluation with noise annealing."""
+
+import math
+from typing import Literal
+
 import torch
+
+
+class NoiseSchedule:
+    """Noise annealing schedule for rollout stability."""
+    
+    def __init__(
+        self,
+        schedule_type: Literal['linear', 'cosine', 'none'] = 'linear',
+        sigma_start: float = 1e-2,
+        sigma_end: float = 1e-4,
+        total_steps: int = 40
+    ):
+        if schedule_type not in ('linear', 'cosine', 'none'):
+            raise ValueError(f"schedule_type must be 'linear', 'cosine', or 'none', got '{schedule_type}'")
+        if sigma_start < 0:
+            raise ValueError(f"sigma_start must be non-negative, got {sigma_start}")
+        if sigma_end < 0:
+            raise ValueError(f"sigma_end must be non-negative, got {sigma_end}")
+        if total_steps < 1:
+            raise ValueError(f"total_steps must be at least 1, got {total_steps}")
+        
+        self.schedule_type = schedule_type
+        self.sigma_start = sigma_start
+        self.sigma_end = sigma_end
+        self.total_steps = total_steps
+    
+    def get_sigma(self, step: int) -> float:
+        """Get noise level σ at the given step."""
+        if step < 0:
+            step = 0
+        if step >= self.total_steps:
+            step = self.total_steps - 1
+        
+        if self.schedule_type == 'none':
+            return self.sigma_start
+        
+        t_ratio = step / max(self.total_steps - 1, 1)
+        
+        if self.schedule_type == 'linear':
+            sigma = self.sigma_start - (self.sigma_start - self.sigma_end) * t_ratio
+        elif self.schedule_type == 'cosine':
+            sigma = self.sigma_end + 0.5 * (self.sigma_start - self.sigma_end) * (1 + math.cos(math.pi * t_ratio))
+        else:
+            sigma = self.sigma_start
+        
+        return sigma
+    
+    def __call__(self, step: int) -> float:
+        return self.get_sigma(step)
 
 
 def rollout(
@@ -119,3 +173,191 @@ def single_step(
         x_next = decoder(z_pred)
 
     return x_next
+
+
+
+class RolloutEvaluator:
+    """Multi-horizon rollout evaluation with noise annealing."""
+
+    def __init__(
+        self,
+        model,
+        decoder,
+        noise_schedule: NoiseSchedule = None,
+        device: str = 'cpu'
+    ):
+        self.model = model
+        self.decoder = decoder
+        self.noise_schedule = noise_schedule
+        self.device = device
+        self.model.to(device)
+        self.decoder.to(device)
+
+    def rollout_single(self, x_init: torch.Tensor, steps: int) -> torch.Tensor:
+        """Perform closed-loop autoregressive rollout."""
+        self.model.eval()
+        x = x_init.to(self.device)
+        outputs = []
+
+        # Create noise schedule for this rollout if enabled
+        if self.noise_schedule is not None:
+            # Create a new schedule with the correct total_steps for this rollout
+            rollout_noise_schedule = NoiseSchedule(
+                schedule_type=self.noise_schedule.schedule_type,
+                sigma_start=self.noise_schedule.sigma_start,
+                sigma_end=self.noise_schedule.sigma_end,
+                total_steps=steps
+            )
+        else:
+            rollout_noise_schedule = None
+
+        with torch.no_grad():
+            for t in range(steps):
+                # Encode current state
+                z_full = self.model.encoder(x)
+
+                B, N, D = z_full.shape
+
+                # Use all patches as both context and target
+                context_indices = torch.arange(N, device=self.device).unsqueeze(0).repeat(B, 1)
+                target_indices = context_indices
+
+                # Predict next latent state
+                z_pred = self.model.predict_latent(
+                    z_full,
+                    context_indices,
+                    target_indices
+                )
+
+                # Inject Gaussian noise: ẑ ← ẑ + σ(t)·ε where ε ~ N(0, I)
+                if rollout_noise_schedule is not None:
+                    sigma = rollout_noise_schedule.get_sigma(t)
+                    if sigma > 0:
+                        epsilon = torch.randn_like(z_pred)
+                        z_pred = z_pred + sigma * epsilon
+
+                # Decode to output space
+                x = self.decoder(z_pred)
+
+                outputs.append(x)
+
+        return torch.stack(outputs, dim=1)
+
+    def evaluate(
+        self,
+        dataloader,
+        horizons: list = None,
+        metric_fn=None
+    ) -> dict:
+        """Evaluate model at multiple rollout horizons."""
+        if horizons is None:
+            horizons = [1, 5, 10, 20, 40]
+
+        if metric_fn is None:
+            metric_fn = self._relative_l2_error
+
+        self.model.eval()
+
+        # Initialize results storage
+        results = {
+            'horizons': horizons,
+            'relative_l2': {},
+            'per_sample_errors': {h: [] for h in horizons},
+            'cumulative_errors': {}
+        }
+
+        max_horizon = max(horizons)
+
+        with torch.no_grad():
+            for batch in dataloader:
+                # Handle different batch formats
+                if isinstance(batch, (list, tuple)):
+                    if len(batch) >= 2:
+                        x_init, ground_truth = batch[0], batch[1]
+                    else:
+                        x_init = batch[0]
+                        ground_truth = None
+                else:
+                    x_init = batch
+                    ground_truth = None
+
+                x_init = x_init.to(self.device)
+                if ground_truth is not None:
+                    ground_truth = ground_truth.to(self.device)
+
+                # Determine available timesteps
+                if ground_truth is not None:
+                    available_steps = ground_truth.shape[1]
+                else:
+                    available_steps = max_horizon
+
+                # Perform rollout up to max horizon (capped by available data)
+                rollout_steps = min(max_horizon, available_steps)
+                predictions = self.rollout_single(x_init, rollout_steps)
+
+                # Compute metrics at each horizon
+                for h in horizons:
+                    if h > rollout_steps:
+                        continue
+
+                    # Get prediction at horizon h (0-indexed, so h-1)
+                    pred_h = predictions[:, h-1]
+
+                    if ground_truth is not None and h <= ground_truth.shape[1]:
+                        target_h = ground_truth[:, h-1]
+
+                        # Compute per-sample error
+                        error = metric_fn(pred_h, target_h)
+                        results['per_sample_errors'][h].append(error.item())
+
+        # Aggregate results
+        for h in horizons:
+            if results['per_sample_errors'][h]:
+                errors = results['per_sample_errors'][h]
+                results['relative_l2'][h] = sum(errors) / len(errors)
+
+        # Compute cumulative errors
+        cumulative = 0.0
+        for h in sorted(horizons):
+            if h in results['relative_l2']:
+                cumulative += results['relative_l2'][h]
+                results['cumulative_errors'][h] = cumulative
+
+        return results
+
+    def evaluate_ood(
+        self,
+        ood_dataloader,
+        horizons: list = None,
+        metric_fn=None
+    ) -> dict:
+        """Evaluate on out-of-distribution data."""
+        if horizons is None:
+            horizons = [1, 5, 10, 20, 40]
+
+        # Use the same evaluation logic as evaluate()
+        results = self.evaluate(ood_dataloader, horizons, metric_fn)
+
+        # Rename keys to indicate OOD evaluation
+        results['ood_relative_l2'] = results.pop('relative_l2')
+        results['is_ood'] = True
+
+        return results
+
+    def _relative_l2_error(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Relative L2 error: ||û - u||_2 / ||u||_2."""
+        # Flatten spatial dimensions
+        pred_flat = pred.reshape(pred.shape[0], -1)
+        target_flat = target.reshape(target.shape[0], -1)
+
+        # Compute L2 norms
+        diff_norm = torch.norm(pred_flat - target_flat, p=2, dim=1)
+        target_norm = torch.norm(target_flat, p=2, dim=1)
+
+        # Avoid division by zero
+        target_norm = torch.clamp(target_norm, min=1e-8)
+
+        # Relative L2 error per sample, then mean
+        relative_error = diff_norm / target_norm
+
+        return relative_error.mean()

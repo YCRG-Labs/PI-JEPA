@@ -2,10 +2,16 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..physics.darcy import (
-    physics_loss_pressure,
-    physics_loss_saturation
-)
+try:
+    from ..physics.darcy import (
+        physics_loss_pressure,
+        physics_loss_saturation
+    )
+except ImportError:
+    from physics.darcy import (
+        physics_loss_pressure,
+        physics_loss_saturation
+    )
 
 
 class JEPAAlignmentLoss(nn.Module):

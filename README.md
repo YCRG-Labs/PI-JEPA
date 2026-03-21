@@ -36,12 +36,54 @@ configs/          # Configuration files
 
 ### Usage
 
-Train PI-JEPA:
+**Sanity Check:**
 ```bash
-python scripts/train.py --config configs/darcy.yaml
+python scripts/run_experiments.py --sanity-check
 ```
 
-Run benchmarks:
+**Quick Start - Run Everything:**
 ```bash
+python scripts/run_experiments.py --all
+```
+
+**Or Step-by-Step (Recommended):**
+
+**1. Pretraining (~24-48 hours on GPU)**
+```bash
+python scripts/run_experiments.py --pretrain
+# Or directly:
+python scripts/train.py --config configs/darcy.yaml
+```
+This trains PI-JEPA for 500 epochs with the paper specifications (batch 64, AdamW lr=1.5e-4, EMA τ: 0.99→0.999).
+
+**2. Fine-Tuning Data Efficiency Sweep (~6-12 hours)**
+```bash
+python scripts/run_experiments.py --finetune --checkpoint outputs/checkpoint_final.pt
+```
+Runs fine-tuning with N_l ∈ {10, 25, 50, 100, 250, 500} labeled samples to generate data efficiency curves.
+
+**3. Rollout Evaluation (~1-2 hours)**
+```bash
+python scripts/run_experiments.py --evaluate --checkpoint outputs/checkpoint_final.pt
+```
+Evaluates at horizons T ∈ {1, 5, 10, 20, 40} with noise annealing.
+
+**4. Benchmark Comparison (~12-24 hours)**
+```bash
+python scripts/run_experiments.py --benchmark
+# Or directly:
 python scripts/benchmark.py --config configs/benchmark.yaml
 ```
+Compares against FNO, PINO, GeoFNO, DeepONet, PINN, PI-LatentNO.
+
+**5. Ablation Studies**
+```bash
+python scripts/run_experiments.py --ablation
+```
+Generates configs for ablating physics loss, variance/covariance regularization, and K ∈ {1, 2, 3}.
+
+**6. Generate Publication Figures**
+```bash
+python scripts/run_experiments.py --figures
+```
+Creates data efficiency curves, error accumulation plots, and rollout comparisons.

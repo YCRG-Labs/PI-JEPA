@@ -1,27 +1,54 @@
+# =============================================================================
+# PI-JEPA Configuration for Darcy Flow
+# =============================================================================
+# Paper specifications:
+# - 500 epochs pretraining with batch size 64
+# - AdamW: lr=1.5×10^-4, weight_decay=5×10^-2
+# - EMA momentum annealing: τ from 0.99 to 0.999 over first 10% epochs
+# - Physics weight ramping over first 200 steps
+# - Loss weights: λ_p=0.1 (physics), λ_r=1.0 (regularization)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Experiment Configuration
+# -----------------------------------------------------------------------------
 experiment:
-  name: pi_jepa_darcy_full_v5
+  name: pi_jepa_darcy_paper
   seed: 42
-  device: cpu
-  precision: fp32
+  device: null  # null for auto-detect (cuda > mps > cpu)
+  precision: fp32  # fp32 or fp16
   deterministic: false
 
+# -----------------------------------------------------------------------------
+# Data Configuration
+# -----------------------------------------------------------------------------
 data:
+  dataset: ufno_co2  # ufno_co2, pdebench_adr, spe10, navier_stokes
   path: ./data/darcy/
+  grid_size: 64
   sequence_length: 2
   stride: 1
   normalize: true
   include_coeff: true
   num_patches: 64
-  grid_size: 64
-
+  
   channels:
-    u: 0
-    k: 1
+    u: 0  # Solution field channel
+    k: 1  # Coefficient field channel
+  
+  splits:
+    train: 1600
+    pretrain: 200
+    finetune: 200
+    test: 200
 
+# -----------------------------------------------------------------------------
+# Model Configuration
+# -----------------------------------------------------------------------------
 model:
   latent_dim: 384
-  num_predictors: 1
-
+  num_predictors: 2  # K=2 for Darcy, K=3 for reactive transport
+  
   encoder:
     embed_dim: 384
     patch_size: 8
@@ -33,79 +60,193 @@ model:
     attention_dropout: 0.1
     drop_path: 0.1
     residual_scale: 1.0
-
+  
   predictor:
     stages:
       - name: pressure_step
         depth: 4
         heads: 6
         hidden_dim: 384
-
+      
       - name: transport_step
         depth: 4
         heads: 6
         hidden_dim: 384
-
+    
     drop_path: 0.1
     sequential: true
     skip_connections: true
+    channel_mixing: false  # Enable for multi-species (K=3)
+    n_species: 1  # Number of species for reactive transport
 
+# -----------------------------------------------------------------------------
+# Decoder Configuration
+# -----------------------------------------------------------------------------
 decoder:
   embed_dim: 384
   out_channels: 2
   image_size: 64
   patch_size: 8
 
-ema:
-  schedule:
-    tau_start: 0.99
-    tau_end: 0.9995
+# -----------------------------------------------------------------------------
+# Physics Configuration
+# -----------------------------------------------------------------------------
+physics:
+  type: darcy  # darcy or reactive_transport
+  
+  # Darcy-specific (Brooks-Corey model)
+  brooks_corey:
+    S_wr: 0.0  # Residual water saturation
+    S_nr: 0.0  # Residual non-wetting saturation
+    lambda: 2.0  # Pore size distribution index
+  
+  mu_w: 1.0  # Water viscosity
+  mu_n: 5.0  # Non-wetting phase viscosity
+  collocation_size: 32  # 32×32 = 1024 collocation points
+  dx: 1.0
+  dy: 1.0
+  dt: 1.0
+  
+  # Reactive transport-specific (K=3)
+  n_species: 1
+  stoichiometry: []  # Flattened stoichiometric matrix
+  peclet: 1.0  # Péclet number
+  damkohler: 1.0  # Damköhler number
 
-masking:
-  context_ratio: 0.65
-
+# -----------------------------------------------------------------------------
+# Training Configuration (Paper Specifications)
+# -----------------------------------------------------------------------------
 training:
-  epochs: 100
-  batch_size: 16
-
+  epochs: 500  # Paper: 500 epochs pretraining
+  batch_size: 64  # Paper: batch size 64
+  
   optim:
-    lr: 1e-4
-    weight_decay: 1e-5
+    lr: 1.5e-4  # Paper: 1.5×10^-4
+    weight_decay: 5e-2  # Paper: 5×10^-2
     betas: [0.9, 0.95]
-
+  
   gradient:
     clip_norm: 1.0
-
+  
   rollout_training:
     enabled: true
     weight_decay_per_step: 0.9
 
+# -----------------------------------------------------------------------------
+# Loss Configuration (Paper Specifications)
+# -----------------------------------------------------------------------------
 loss:
   prediction:
     weight: 1.0
     normalize: true
-
+  
   stagewise_prediction:
     enabled: true
     weights:
       pressure_step: 1.0
       transport_step: 1.0
-
+  
   physics:
     enabled: true
-    weight: 0.1
+    weight: 0.1  # Paper: λ_p = 0.1
+    ramp_steps: 200  # Paper: ramp over first 200 steps
+    
+    # Separate weights for K=3 predictors (reactive transport)
+    weights_per_residual:
+      pressure: 0.1  # λ_p^(1)
+      transport: 0.1  # λ_p^(2)
+      reaction: 0.1  # λ_p^(3)
+    
+    # Physics loss parameters
     mu_w: 1.0
     mu_o: 5.0
     krw_exp: 2.0
     kro_exp: 2.0
-
+  
   regularization:
+    weight: 1.0  # Paper: λ_r = 1.0
+    
     variance:
       weight: 0.05
       gamma: 1.0
-
+    
     covariance:
       weight: 0.01
 
+# -----------------------------------------------------------------------------
+# EMA Configuration (Paper Specifications)
+# -----------------------------------------------------------------------------
+ema:
+  enabled: true
+  schedule:
+    tau_start: 0.99  # Paper: τ starts at 0.99
+    tau_end: 0.999  # Paper: τ ends at 0.999
+    warmup_fraction: 0.1  # Paper: over first 10% of epochs
+
+# -----------------------------------------------------------------------------
+# Masking Configuration
+# -----------------------------------------------------------------------------
+masking:
+  context_ratio: 0.65
+
+# -----------------------------------------------------------------------------
+# Fine-Tuning Configuration
+# -----------------------------------------------------------------------------
+finetune:
+  epochs: 100  # Paper: 100 epochs fine-tuning
+  lr: 1.5e-4  # Paper: same learning rate
+  n_labeled: [10, 25, 50, 100, 250, 500]  # Data efficiency sweep
+  freeze_encoder: true
+
+# -----------------------------------------------------------------------------
+# Rollout Configuration
+# -----------------------------------------------------------------------------
+rollout:
+  horizons: [1, 5, 10, 20, 40]  # Paper: evaluation horizons
+  noise:
+    enabled: true
+    sigma_start: 1e-2  # Paper: σ starts at 10^-2
+    sigma_end: 1e-4  # Paper: σ ends at 10^-4
+    schedule: linear  # linear or cosine
+
+# -----------------------------------------------------------------------------
+# Evaluation Configuration
+# -----------------------------------------------------------------------------
+evaluation:
+  metrics:
+    - relative_l2
+    - pde_residual
+    - per_channel_mse
+    - ood_error
+  ood_split: spe10
+
+# -----------------------------------------------------------------------------
+# Visualization Configuration
+# -----------------------------------------------------------------------------
+visualization:
+  enabled: true
+  output_dir: ./outputs/figures
+  plots:
+    - rollout_comparison
+    - data_efficiency
+    - error_accumulation
+    - latent_space
+
+# -----------------------------------------------------------------------------
+# Ablation Configuration
+# -----------------------------------------------------------------------------
+ablation:
+  enabled: false
+  vary_k: [1, 2, 3]  # Number of predictors
+  disable_components:
+    - physics
+    - variance
+    - covariance
+
+# -----------------------------------------------------------------------------
+# Logging Configuration
+# -----------------------------------------------------------------------------
 logging:
   base_dir: ./outputs
+  log_interval: 50
+  save_interval: 10  # Save checkpoint every N epochs
