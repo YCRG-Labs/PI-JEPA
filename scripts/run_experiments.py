@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "PI-JEPA"))
 
 import torch
+import torch.nn.functional as F
 import numpy as np
 
 from utils import load_config, Logger, save_checkpoint
@@ -152,59 +153,131 @@ def run_rollout_evaluation(checkpoint_path, config_path="configs/darcy.yaml", ou
     model.eval()
     
     if problem_type == "steady_state":
-        # For steady-state PDEs (like Darcy): use finetuned model
+        # For steady-state PDEs (like Darcy): train prediction head and evaluate
         print("\nEvaluating steady-state prediction (Darcy flow)...")
         print("Task: predict solution y from coefficient x")
         
-        # Try to load a finetuned checkpoint for better results
-        finetune_checkpoint = os.path.join(os.path.dirname(output_dir), "finetune", "finetune_n500.pt")
-        linear_probe = None
+        # Get train loader for training prediction head
+        train_loader, _, _ = load_darcy_flow_small(
+            n_train=500, batch_size=32, test_resolutions=[64],
+            n_tests=[200], test_batch_sizes=[32], encode_output=False,
+        )
         
-        if os.path.exists(finetune_checkpoint):
-            print(f"Loading finetuned model from {finetune_checkpoint}")
-            ft_ckpt = torch.load(finetune_checkpoint, map_location=device, weights_only=False)
-            if "linear_probe" in ft_ckpt:
-                from training import LinearProbe
-                embed_dim = cfg["model"]["encoder"]["embed_dim"]
-                linear_probe = LinearProbe(embed_dim, embed_dim).to(device)
-                linear_probe.load_state_dict(ft_ckpt["linear_probe"])
-                linear_probe.eval()
-            if "decoder" in ft_ckpt:
-                decoder.load_state_dict(ft_ckpt["decoder"])
+        # Build prediction head: takes encoder output, predicts solution
+        embed_dim = cfg["model"]["encoder"]["embed_dim"]
+        patch_size = cfg["model"]["encoder"]["patch_size"]
+        image_size = cfg["model"]["encoder"]["image_size"]
+        num_patches = (image_size // patch_size) ** 2
         
-        total_error = 0.0
-        count = 0
+        class PredictionHead(torch.nn.Module):
+            """Prediction head: coefficient encoding -> solution field"""
+            def __init__(self, embed_dim, num_patches, image_size, patch_size):
+                super().__init__()
+                self.num_patches = num_patches
+                self.image_size = image_size
+                self.patch_size = patch_size
+                patches_per_side = image_size // patch_size
+                
+                # MLP to transform embeddings
+                self.mlp = torch.nn.Sequential(
+                    torch.nn.Linear(embed_dim, embed_dim * 2),
+                    torch.nn.GELU(),
+                    torch.nn.Linear(embed_dim * 2, embed_dim),
+                    torch.nn.GELU(),
+                    torch.nn.Linear(embed_dim, patch_size * patch_size),
+                )
+                self.patches_per_side = patches_per_side
+                
+            def forward(self, z):
+                # z: (B, num_patches, embed_dim)
+                B = z.shape[0]
+                x = self.mlp(z)  # (B, num_patches, patch_size^2)
+                
+                # Reshape to image
+                x = x.view(B, self.patches_per_side, self.patches_per_side, 
+                          self.patch_size, self.patch_size)
+                x = x.permute(0, 1, 3, 2, 4).contiguous()
+                x = x.view(B, 1, self.image_size, self.image_size)
+                return x
         
-        with torch.no_grad():
-            for batch in test_loader:
-                x = batch["x"].to(device).float()  # permeability coefficient
-                y = batch["y"].to(device).float()  # solution (ground truth)
+        pred_head = PredictionHead(embed_dim, num_patches, image_size, patch_size).to(device)
+        
+        # Train prediction head with frozen encoder
+        print("\nTraining prediction head (500 samples, 100 epochs)...")
+        model.eval()
+        for param in model.parameters():
+            param.requires_grad = False
+        
+        optimizer = torch.optim.AdamW(pred_head.parameters(), lr=1e-3, weight_decay=1e-4)
+        
+        pred_head.train()
+        for epoch in range(100):
+            epoch_loss = 0.0
+            n_batches = 0
+            for batch in train_loader:
+                x = batch["x"].to(device).float()  # coefficient
+                y = batch["y"].to(device).float()  # solution (target)
                 
                 if x.dim() == 3:
                     x = x.unsqueeze(1)
                 if y.dim() == 3:
                     y = y.unsqueeze(1)
                 
-                # Model expects 2 channels: [solution, coefficient]
-                # Use ground truth for encoding (same as training)
-                x_input = torch.cat([y, x], dim=1)
+                # Encode coefficient only (pad with zeros for solution channel)
+                zeros = torch.zeros_like(x)
+                x_input = torch.cat([zeros, x], dim=1)
+                
+                with torch.no_grad():
+                    z = model.encoder(x_input)
+                
+                pred_y = pred_head(z)
+                loss = F.mse_loss(pred_y, y)
+                
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                
+                epoch_loss += loss.item()
+                n_batches += 1
+            
+            if (epoch + 1) % 20 == 0:
+                print(f"  Epoch {epoch+1}: loss = {epoch_loss/n_batches:.6f}")
+        
+        # Evaluate on test set
+        print("\nEvaluating on test set...")
+        pred_head.eval()
+        total_error = 0.0
+        count = 0
+        
+        with torch.no_grad():
+            for batch in test_loader:
+                x = batch["x"].to(device).float()
+                y = batch["y"].to(device).float()
+                
+                if x.dim() == 3:
+                    x = x.unsqueeze(1)
+                if y.dim() == 3:
+                    y = y.unsqueeze(1)
+                
+                zeros = torch.zeros_like(x)
+                x_input = torch.cat([zeros, x], dim=1)
                 
                 z = model.encoder(x_input)
-                if linear_probe is not None:
-                    z = linear_probe(z)
-                pred = decoder(z)
-                
-                # Extract solution channel (first channel) from prediction
-                pred_y = pred[:, 0:1]
+                pred_y = pred_head(z)
                 
                 error = relative_l2(pred_y, y)
                 total_error += error.item()
                 count += 1
         
         avg_error = total_error / max(count, 1)
-        results["steady_state"] = avg_error
+        results["prediction_l2"] = avg_error
         results["relative_l2"] = avg_error
-        print(f"  Relative L2 Error: {avg_error:.6f} ({avg_error*100:.2f}%)")
+        print(f"\n  PI-JEPA Prediction Error: {avg_error:.6f} ({avg_error*100:.2f}%)")
+        
+        # Save prediction head
+        pred_head_path = os.path.join(output_dir, "prediction_head.pt")
+        torch.save(pred_head.state_dict(), pred_head_path)
+        print(f"  Saved prediction head to {pred_head_path}")
         
     else:
         # For time-dependent PDEs: autoregressive rollout
