@@ -285,7 +285,7 @@ class FineTuningPipeline:
 
     def load_checkpoint(self, path: str) -> dict:
         """Load model checkpoint and restore training state."""
-        checkpoint = torch.load(path, map_location=self.device)
+        checkpoint = torch.load(path, map_location=self.device, weights_only=False)
 
         self.epoch = checkpoint.get("epoch", 0)
         self.step = checkpoint.get("step", 0)

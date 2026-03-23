@@ -59,7 +59,7 @@ def load_checkpoint(
     scaler=None,
     map_location="cpu"
 ):
-    checkpoint = torch.load(path, map_location=map_location)
+    checkpoint = torch.load(path, map_location=map_location, weights_only=False)
 
     model.encoder.load_state_dict(checkpoint["student_encoder"])
     model.target_encoder.load_state_dict(checkpoint["target_encoder"])

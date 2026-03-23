@@ -64,7 +64,7 @@ def run_finetuning_sweep(checkpoint_path, config_path="configs/darcy.yaml", outp
     decoder = Decoder(**cfg["decoder"]).to(device)
 
     if os.path.exists(checkpoint_path):
-        checkpoint = torch.load(checkpoint_path, map_location=device)
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
         model.encoder.load_state_dict(checkpoint["student_encoder"])
         model.target_encoder.load_state_dict(checkpoint["target_encoder"])
         for p, state in zip(model.predictors, checkpoint["predictors"]):
@@ -129,7 +129,7 @@ def run_rollout_evaluation(checkpoint_path, config_path="configs/darcy.yaml", ou
     decoder = Decoder(**cfg["decoder"]).to(device)
     
     if os.path.exists(checkpoint_path):
-        checkpoint = torch.load(checkpoint_path, map_location=device)
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
         model.encoder.load_state_dict(checkpoint["student_encoder"])
         model.target_encoder.load_state_dict(checkpoint["target_encoder"])
         for p, state in zip(model.predictors, checkpoint["predictors"]):
