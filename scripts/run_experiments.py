@@ -169,9 +169,12 @@ def run_rollout_evaluation(checkpoint_path, config_path="configs/darcy.yaml", ou
                 if y.dim() == 3:
                     y = y.unsqueeze(1)
                 
-                # For steady-state: encode coefficient, decode to solution
-                # Input is just the coefficient field
-                z = model.encoder(x)
+                # Model expects 2 channels: [solution, coefficient]
+                # For evaluation, use zeros for solution channel (model predicts it)
+                zeros = torch.zeros_like(y)
+                x_input = torch.cat([zeros, x], dim=1)
+                
+                z = model.encoder(x_input)
                 pred = decoder(z)
                 
                 error = relative_l2(pred, y)
