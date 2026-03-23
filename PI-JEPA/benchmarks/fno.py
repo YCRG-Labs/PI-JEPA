@@ -36,6 +36,10 @@ class SpectralConv2d(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, C, H, W = x.shape
         
+        # Clamp modes to input resolution
+        modes1 = min(self.modes1, H)
+        modes2 = min(self.modes2, W // 2 + 1)
+        
         # Compute FFT
         x_ft = torch.fft.rfft2(x)
         
@@ -45,11 +49,11 @@ class SpectralConv2d(nn.Module):
             dtype=torch.cfloat, device=x.device
         )
         
-        out_ft[:, :, :self.modes1, :self.modes2] = self.compl_mul2d(
-            x_ft[:, :, :self.modes1, :self.modes2], self.weights1
+        out_ft[:, :, :modes1, :modes2] = self.compl_mul2d(
+            x_ft[:, :, :modes1, :modes2], self.weights1[:, :, :modes1, :modes2]
         )
-        out_ft[:, :, -self.modes1:, :self.modes2] = self.compl_mul2d(
-            x_ft[:, :, -self.modes1:, :self.modes2], self.weights2
+        out_ft[:, :, -modes1:, :modes2] = self.compl_mul2d(
+            x_ft[:, :, -modes1:, :modes2], self.weights2[:, :, :modes1, :modes2]
         )
         
         # Return to physical space
