@@ -183,7 +183,8 @@ def run_rollout_evaluation(checkpoint_path, config_path="configs/darcy.yaml", ou
                 # preds shape: (B, horizon, C, H, W) — take last step
                 pred_final = preds[:, -1]
 
-                error = relative_l2(pred_final, x_input)
+                # Compare prediction to ground truth (y), not input
+                error = relative_l2(pred_final, y)
                 total_error += error.item()
                 count += 1
 
