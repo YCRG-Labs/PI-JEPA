@@ -62,19 +62,26 @@ class DeepONetWrapper:
     
     def __init__(self, device: torch.device):
         self.device = device
-        self.model = DeepONet().to(device)
+        self.model = None  # Created lazily on first batch
         self.loss_fn = nn.MSELoss()
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
+        self.optimizer = None
+    
+    def _ensure_model(self, input_dim):
+        if self.model is None:
+            self.model = DeepONet(branch_input_dim=input_dim).to(self.device)
+            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
     
     def train_model(self, loader, epochs: int, lr: float):
         """Train DeepONet model."""
-        self.model.train()
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
-        
-        for _ in range(epochs):
+        for epoch in range(epochs):
             for batch in loader:
                 k = fix_shape(batch["x"].to(self.device).float())
                 u = fix_shape(batch["y"].to(self.device).float())
+                
+                B = k.shape[0]
+                self._ensure_model(k.view(B, -1).shape[1])
+                self.model.train()
+                self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr) if epoch == 0 else self.optimizer
                 
                 pred = self.model(k)
                 loss = self.loss_fn(pred, u)

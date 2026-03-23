@@ -86,7 +86,6 @@ def compute_l2(pred, target):
 
 
 def evaluate(model, loader, device):
-    model.eval()
     total_error = 0.0
     count = 0
 
@@ -118,7 +117,8 @@ def train_model(model, loader, epochs, lr, device):
         return
 
     if hasattr(model, "train_step"):
-        model.train()
+        if hasattr(model, "model"):
+            model.model.train()
 
         for epoch in range(epochs):
             for batch in loader:
