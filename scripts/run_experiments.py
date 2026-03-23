@@ -149,8 +149,8 @@ def run_rollout_evaluation(checkpoint_path, config_path="configs/darcy.yaml", ou
         model=model, decoder=decoder,
         noise_schedule=NoiseSchedule(
             schedule_type=noise_cfg.get("schedule", "linear"),
-            sigma_start=noise_cfg.get("sigma_start", 1e-2),
-            sigma_end=noise_cfg.get("sigma_end", 1e-4),
+            sigma_start=float(noise_cfg.get("sigma_start", 1e-2)),
+            sigma_end=float(noise_cfg.get("sigma_end", 1e-4)),
             total_steps=max(horizons),
         ),
         device=str(device),
