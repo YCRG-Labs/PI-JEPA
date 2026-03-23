@@ -401,7 +401,7 @@ def sample_block_mask_indices(
 # Main Training Function
 # ============================================================================
 
-def train(config_path: str = "configs/darcy.yaml") -> None:
+def train(config_path: str = "configs/darcy.yaml", output_dir: str = "outputs") -> str:
     """
     Train PI-JEPA model with paper specifications.
     
@@ -414,6 +414,10 @@ def train(config_path: str = "configs/darcy.yaml") -> None:
     
     Args:
         config_path: Path to YAML configuration file
+        output_dir: Directory to save the final checkpoint
+    
+    Returns:
+        Path to the saved final checkpoint
     """
     cfg = load_config(config_path)
 
@@ -565,10 +569,27 @@ def train(config_path: str = "configs/darcy.yaml") -> None:
                   f"τ: {tau:.4f} | "
                   f"λ_p: {physics_weight:.4f}")
 
+    # Save final checkpoint
+    checkpoint_path = os.path.join(output_dir, "checkpoint_final.pt")
+    save_checkpoint(
+        path=checkpoint_path,
+        model=model,
+        decoder=decoder,
+        optimizer=optimizer,
+        scaler=None,
+        epoch=total_epochs,
+        step=global_step,
+        config=cfg,
+    )
+    print(f"Saved final checkpoint to {checkpoint_path}")
+
+    return checkpoint_path
+
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/darcy.yaml", help="Path to config file")
+    parser.add_argument("--output", default="outputs", help="Output directory for checkpoints")
     args = parser.parse_args()
-    train(args.config)
+    train(args.config, args.output)

@@ -31,9 +31,9 @@ def run_pretraining(config_path="configs/darcy.yaml", output_dir="outputs"):
     print("="*60)
     
     from train import train
-    train(config_path)
+    checkpoint_path = train(config_path, output_dir)
     
-    return os.path.join(output_dir, "checkpoint_final.pt")
+    return checkpoint_path
 
 
 def run_finetuning_sweep(checkpoint_path, config_path="configs/darcy.yaml", output_dir="outputs/finetune"):
@@ -65,10 +65,11 @@ def run_finetuning_sweep(checkpoint_path, config_path="configs/darcy.yaml", outp
 
     if os.path.exists(checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=device)
-        if "model_state_dict" in checkpoint:
-            model.load_state_dict(checkpoint["model_state_dict"])
-        if "decoder_state_dict" in checkpoint:
-            decoder.load_state_dict(checkpoint["decoder_state_dict"])
+        model.encoder.load_state_dict(checkpoint["student_encoder"])
+        model.target_encoder.load_state_dict(checkpoint["target_encoder"])
+        for p, state in zip(model.predictors, checkpoint["predictors"]):
+            p.load_state_dict(state)
+        decoder.load_state_dict(checkpoint["decoder"])
     
     train_loader, _, _ = load_darcy_flow_small(
         n_train=1000, batch_size=cfg["training"].get("batch_size", 64),
@@ -129,10 +130,11 @@ def run_rollout_evaluation(checkpoint_path, config_path="configs/darcy.yaml", ou
     
     if os.path.exists(checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=device)
-        if "model_state_dict" in checkpoint:
-            model.load_state_dict(checkpoint["model_state_dict"])
-        if "decoder_state_dict" in checkpoint:
-            decoder.load_state_dict(checkpoint["decoder_state_dict"])
+        model.encoder.load_state_dict(checkpoint["student_encoder"])
+        model.target_encoder.load_state_dict(checkpoint["target_encoder"])
+        for p, state in zip(model.predictors, checkpoint["predictors"]):
+            p.load_state_dict(state)
+        decoder.load_state_dict(checkpoint["decoder"])
     
     _, test_loaders, _ = load_darcy_flow_small(
         n_train=100, batch_size=32, test_resolutions=[64],
