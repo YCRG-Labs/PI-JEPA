@@ -90,8 +90,7 @@ def run_finetuning_sweep(checkpoint_path, config_path="configs/darcy.yaml", outp
         )
         
         embed_dim = cfg["model"]["encoder"]["embed_dim"]
-        out_dim = cfg["decoder"]["out_channels"]
-        pipeline.setup_linear_probe(embed_dim=embed_dim, out_dim=out_dim)
+        pipeline.setup_linear_probe(embed_dim=embed_dim, out_dim=embed_dim)
         
         metrics = pipeline.train(train_loader, n_labeled=n_l, n_epochs=n_epochs)
         results[n_l] = {"final_loss": metrics["final_loss"], "train_losses": metrics["train_losses"]}
