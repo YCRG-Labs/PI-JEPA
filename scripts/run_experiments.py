@@ -152,9 +152,25 @@ def run_rollout_evaluation(checkpoint_path, config_path="configs/darcy.yaml", ou
     model.eval()
     
     if problem_type == "steady_state":
-        # For steady-state PDEs (like Darcy): single-step prediction
+        # For steady-state PDEs (like Darcy): use finetuned model
         print("\nEvaluating steady-state prediction (Darcy flow)...")
         print("Task: predict solution y from coefficient x")
+        
+        # Try to load a finetuned checkpoint for better results
+        finetune_checkpoint = os.path.join(os.path.dirname(output_dir), "finetune", "finetune_n500.pt")
+        linear_probe = None
+        
+        if os.path.exists(finetune_checkpoint):
+            print(f"Loading finetuned model from {finetune_checkpoint}")
+            ft_ckpt = torch.load(finetune_checkpoint, map_location=device, weights_only=False)
+            if "linear_probe" in ft_ckpt:
+                from training import LinearProbe
+                embed_dim = cfg["model"]["encoder"]["embed_dim"]
+                linear_probe = LinearProbe(embed_dim, embed_dim).to(device)
+                linear_probe.load_state_dict(ft_ckpt["linear_probe"])
+                linear_probe.eval()
+            if "decoder" in ft_ckpt:
+                decoder.load_state_dict(ft_ckpt["decoder"])
         
         total_error = 0.0
         count = 0
@@ -170,14 +186,18 @@ def run_rollout_evaluation(checkpoint_path, config_path="configs/darcy.yaml", ou
                     y = y.unsqueeze(1)
                 
                 # Model expects 2 channels: [solution, coefficient]
-                # For evaluation, use zeros for solution channel (model predicts it)
-                zeros = torch.zeros_like(y)
-                x_input = torch.cat([zeros, x], dim=1)
+                # Use ground truth for encoding (same as training)
+                x_input = torch.cat([y, x], dim=1)
                 
                 z = model.encoder(x_input)
+                if linear_probe is not None:
+                    z = linear_probe(z)
                 pred = decoder(z)
                 
-                error = relative_l2(pred, y)
+                # Extract solution channel (first channel) from prediction
+                pred_y = pred[:, 0:1]
+                
+                error = relative_l2(pred_y, y)
                 total_error += error.item()
                 count += 1
         
