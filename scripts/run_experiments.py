@@ -157,36 +157,19 @@ def run_rollout_evaluation(checkpoint_path, config_path="configs/darcy.yaml", ou
     )
     
     os.makedirs(output_dir, exist_ok=True)
-    results = {}
     
-    for horizon in horizons:
-        print(f"\n--- Horizon T = {horizon} ---")
-        
-        total_error = 0.0
-        count = 0
-        
-        model.eval()
-        with torch.no_grad():
-            for batch in test_loader:
-                x = batch["x"].to(device).float()
-                y = batch["y"].to(device).float()
-                
-                if x.dim() == 3:
-                    x = x.unsqueeze(1)
-                if y.dim() == 3:
-                    y = y.unsqueeze(1)
-                
-                pred = evaluator.single_step(torch.cat([y, x], dim=1))
-                error = relative_l2(pred, torch.cat([y, x], dim=1))
-                
-                total_error += error.item()
-                count += 1
-        
-        results[horizon] = total_error / max(count, 1)
-        print(f"  Error: {results[horizon]:.6f}")
+    # Use the evaluator's built-in multi-horizon evaluation
+    results_raw = evaluator.evaluate(test_loader, horizons=horizons)
+    results = results_raw.get("relative_l2", {})
     
+    for h in horizons:
+        err = results.get(h, float("nan"))
+        print(f"\n--- Horizon T = {h} ---")
+        print(f"  Error: {err:.6f}")
+    
+    # Serialise with string keys for JSON
     with open(os.path.join(output_dir, "rollout.json"), "w") as f:
-        json.dump(results, f, indent=2)
+        json.dump({str(k): v for k, v in results.items()}, f, indent=2)
     
     return results
 
