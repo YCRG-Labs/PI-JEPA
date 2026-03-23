@@ -105,8 +105,9 @@ def run_finetuning_sweep(checkpoint_path, config_path="configs/darcy.yaml", outp
 
 
 def run_rollout_evaluation(checkpoint_path, config_path="configs/darcy.yaml", output_dir="outputs/evaluation"):
+    """Evaluate PI-JEPA model. Handles both steady-state (Darcy) and time-dependent PDEs."""
     print("\n" + "="*60)
-    print("PHASE 3: ROLLOUT EVALUATION")
+    print("PHASE 3: MODEL EVALUATION")
     print("="*60)
     
     from eval import RolloutEvaluator, NoiseSchedule, relative_l2
@@ -115,6 +116,9 @@ def run_rollout_evaluation(checkpoint_path, config_path="configs/darcy.yaml", ou
     
     cfg = load_config(config_path)
     device = get_device()
+    
+    # Check if this is a steady-state or time-dependent problem
+    problem_type = cfg.get("problem", {}).get("type", "steady_state")
     
     encoder = ViTEncoder(cfg).to(device)
     target_encoder = ViTEncoder(cfg).to(device)
@@ -142,58 +146,92 @@ def run_rollout_evaluation(checkpoint_path, config_path="configs/darcy.yaml", ou
     )
     test_loader = list(test_loaders.values())[0]
     
-    horizons = cfg.get("rollout", {}).get("horizons", [1, 5, 10, 20, 40])
-    noise_cfg = cfg.get("rollout", {}).get("noise", {})
-    
-    evaluator = RolloutEvaluator(
-        model=model, decoder=decoder,
-        noise_schedule=NoiseSchedule(
-            schedule_type=noise_cfg.get("schedule", "linear"),
-            sigma_start=float(noise_cfg.get("sigma_start", 1e-2)),
-            sigma_end=float(noise_cfg.get("sigma_end", 1e-4)),
-            total_steps=max(horizons),
-        ),
-        device=str(device),
-    )
-    
     os.makedirs(output_dir, exist_ok=True)
     results = {}
-
+    
     model.eval()
-    for horizon in horizons:
-        print(f"\n--- Horizon T = {horizon} ---")
-
+    
+    if problem_type == "steady_state":
+        # For steady-state PDEs (like Darcy): single-step prediction
+        print("\nEvaluating steady-state prediction (Darcy flow)...")
+        print("Task: predict solution y from coefficient x")
+        
         total_error = 0.0
         count = 0
-
+        
         with torch.no_grad():
             for batch in test_loader:
-                x = batch["x"].to(device).float()
-                y = batch["y"].to(device).float()
-
+                x = batch["x"].to(device).float()  # permeability coefficient
+                y = batch["y"].to(device).float()  # solution (ground truth)
+                
                 if x.dim() == 3:
                     x = x.unsqueeze(1)
                 if y.dim() == 3:
                     y = y.unsqueeze(1)
-
-                x_input = torch.cat([y, x], dim=1)
-
-                # Autoregressive rollout for `horizon` steps
-                preds = evaluator.rollout_single(x_input, steps=horizon)
-                # preds shape: (B, horizon, C, H, W) — take last step
-                pred_final = preds[:, -1]
-
-                # Compare prediction to ground truth (y), not input
-                error = relative_l2(pred_final, y)
+                
+                # For steady-state: encode coefficient, decode to solution
+                # Input is just the coefficient field
+                z = model.encoder(x)
+                pred = decoder(z)
+                
+                error = relative_l2(pred, y)
                 total_error += error.item()
                 count += 1
-
-        results[horizon] = total_error / max(count, 1)
-        print(f"  Error: {results[horizon]:.6f}")
-
+        
+        avg_error = total_error / max(count, 1)
+        results["steady_state"] = avg_error
+        results["relative_l2"] = avg_error
+        print(f"  Relative L2 Error: {avg_error:.6f} ({avg_error*100:.2f}%)")
+        
+    else:
+        # For time-dependent PDEs: autoregressive rollout
+        print("\nEvaluating time-dependent rollout...")
+        
+        horizons = cfg.get("rollout", {}).get("horizons", [1, 5, 10, 20, 40])
+        noise_cfg = cfg.get("rollout", {}).get("noise", {})
+        
+        evaluator = RolloutEvaluator(
+            model=model, decoder=decoder,
+            noise_schedule=NoiseSchedule(
+                schedule_type=noise_cfg.get("schedule", "linear"),
+                sigma_start=float(noise_cfg.get("sigma_start", 1e-2)),
+                sigma_end=float(noise_cfg.get("sigma_end", 1e-4)),
+                total_steps=max(horizons),
+            ),
+            device=str(device),
+        )
+        
+        for horizon in horizons:
+            print(f"\n--- Horizon T = {horizon} ---")
+            
+            total_error = 0.0
+            count = 0
+            
+            with torch.no_grad():
+                for batch in test_loader:
+                    x = batch["x"].to(device).float()
+                    y = batch["y"].to(device).float()
+                    
+                    if x.dim() == 3:
+                        x = x.unsqueeze(1)
+                    if y.dim() == 3:
+                        y = y.unsqueeze(1)
+                    
+                    x_input = torch.cat([y, x], dim=1)
+                    
+                    preds = evaluator.rollout_single(x_input, steps=horizon)
+                    pred_final = preds[:, -1]
+                    
+                    error = relative_l2(pred_final, y)
+                    total_error += error.item()
+                    count += 1
+            
+            results[horizon] = total_error / max(count, 1)
+            print(f"  Error: {results[horizon]:.6f}")
+    
     with open(os.path.join(output_dir, "rollout.json"), "w") as f:
         json.dump({str(k): v for k, v in results.items()}, f, indent=2)
-
+    
     return results
 
 
