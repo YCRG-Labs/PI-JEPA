@@ -18,7 +18,7 @@ def fix_shape(x):
 class GeoFNOWrapper:
     def __init__(self, device):
         self.device = device
-        self.model = FNO(12, 12, 48, in_channels=1, out_channels=1).to(device)
+        self.model = FNO(n_modes=(12, 12), hidden_channels=48, in_channels=1, out_channels=1).to(device)
 
         self.loss_fn = nn.MSELoss()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
