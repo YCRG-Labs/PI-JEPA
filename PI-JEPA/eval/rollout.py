@@ -271,7 +271,20 @@ class RolloutEvaluator:
         with torch.no_grad():
             for batch in dataloader:
                 # Handle different batch formats
-                if isinstance(batch, (list, tuple)):
+                if isinstance(batch, dict):
+                    x = batch.get('input', batch.get('x'))
+                    y = batch.get('target', batch.get('y', None))
+                    if x is not None:
+                        if x.dim() == 3:
+                            x = x.unsqueeze(1)
+                    if y is not None:
+                        if y.dim() == 3:
+                            y = y.unsqueeze(1)
+                        x_init = torch.cat([y, x], dim=1)
+                    else:
+                        x_init = x
+                    ground_truth = None
+                elif isinstance(batch, (list, tuple)):
                     if len(batch) >= 2:
                         x_init, ground_truth = batch[0], batch[1]
                     else:
