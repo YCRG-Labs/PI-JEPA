@@ -8,6 +8,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "PI-JEPA"))
 
 import torch
@@ -29,7 +30,7 @@ def run_pretraining(config_path="configs/darcy.yaml", output_dir="outputs"):
     print("PHASE 1: PRETRAINING")
     print("="*60)
     
-    from scripts.train import train
+    from train import train
     train(config_path)
     
     return os.path.join(output_dir, "checkpoint_final.pt")
@@ -189,7 +190,7 @@ def run_benchmark_comparison(config_path="configs/benchmark.yaml"):
     print("PHASE 4: BENCHMARK COMPARISON")
     print("="*60)
     
-    from scripts.benchmark import main as run_benchmark
+    from benchmark import main as run_benchmark
     run_benchmark(config_path)
 
 
