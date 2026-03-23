@@ -109,7 +109,7 @@ def run_rollout_evaluation(checkpoint_path, config_path="configs/darcy.yaml", ou
     print("PHASE 3: ROLLOUT EVALUATION")
     print("="*60)
     
-    from eval import RolloutEvaluator, relative_l2
+    from eval import RolloutEvaluator, NoiseSchedule, relative_l2
     from models import ViTEncoder, Predictor, PIJEPA, Decoder
     from neuralop.data.datasets import load_darcy_flow_small
     
@@ -147,8 +147,13 @@ def run_rollout_evaluation(checkpoint_path, config_path="configs/darcy.yaml", ou
     
     evaluator = RolloutEvaluator(
         model=model, decoder=decoder,
-        noise_std=noise_cfg.get("sigma_start", 1e-2),
-        noise_annealing=noise_cfg.get("enabled", True)
+        noise_schedule=NoiseSchedule(
+            schedule_type=noise_cfg.get("schedule", "linear"),
+            sigma_start=noise_cfg.get("sigma_start", 1e-2),
+            sigma_end=noise_cfg.get("sigma_end", 1e-4),
+            total_steps=max(horizons),
+        ),
+        device=str(device),
     )
     
     os.makedirs(output_dir, exist_ok=True)
