@@ -47,7 +47,8 @@ def get_model(name, device):
         return FNOWrapper(device=device)
 
     elif name == "geo_fno":
-        from benchmarks import GeoFNOWrapper
+        from benchmarks import get_geo_fno_wrapper
+        GeoFNOWrapper = get_geo_fno_wrapper()
         return GeoFNOWrapper(device=device)
 
     elif name == "pino":
