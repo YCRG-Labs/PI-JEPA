@@ -170,29 +170,47 @@ def run_rollout_evaluation(checkpoint_path, config_path="configs/darcy.yaml", ou
         
         class PredictionHead(torch.nn.Module):
             """Prediction head: coefficient encoding -> solution field (1 channel)"""
-            def __init__(self, embed_dim, image_size, patch_size):
+            def __init__(self, embed_dim, image_size):
                 super().__init__()
                 self.image_size = image_size
-                self.patch_size = patch_size
-                self.patches_per_side = image_size // patch_size
+                self.embed_dim = embed_dim
                 
-                # Project to single channel output
-                self.proj = torch.nn.Linear(embed_dim, patch_size * patch_size)
+                # Use transposed convolutions to upsample from patches to image
+                self.decoder = torch.nn.Sequential(
+                    torch.nn.Linear(embed_dim, 256),
+                    torch.nn.GELU(),
+                    torch.nn.Linear(256, 256),
+                    torch.nn.GELU(),
+                )
+                # Final projection will be set after seeing actual patch count
+                self.final_proj = None
+                self.num_patches = None
                 
             def forward(self, z):
                 # z: (B, num_patches, embed_dim)
                 B, N, D = z.shape
-                x = self.proj(z)  # (B, num_patches, patch_size^2)
                 
-                # Reshape to image (B, 1, H, W)
-                n = self.patches_per_side
+                # Initialize final projection on first forward pass
+                if self.final_proj is None:
+                    self.num_patches = N
+                    n = int(N ** 0.5)
+                    patch_size = self.image_size // n
+                    self.final_proj = torch.nn.Linear(256, patch_size * patch_size).to(z.device)
+                    self.n = n
+                    self.patch_size = patch_size
+                
+                x = self.decoder(z)  # (B, N, 256)
+                x = self.final_proj(x)  # (B, N, patch_size^2)
+                
+                # Reshape to image
+                n = self.n
                 P = self.patch_size
                 x = x.view(B, n, n, P, P)
                 x = x.permute(0, 1, 3, 2, 4).contiguous()
                 x = x.view(B, 1, self.image_size, self.image_size)
                 return x
         
-        pred_head = PredictionHead(embed_dim, image_size, patch_size).to(device)
+        pred_head = PredictionHead(embed_dim, image_size).to(device)
         
         # Train prediction head with frozen encoder
         print("\nTraining prediction head (500 samples, 100 epochs)...")
