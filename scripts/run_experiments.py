@@ -237,7 +237,14 @@ def run_rollout_evaluation(checkpoint_path, config_path="configs/darcy.yaml", ou
                     z = model.encoder(x_input)
                 
                 pred_y = pred_head(z)
-                loss = F.mse_loss(pred_y, y)
+                
+                # Resize target to match prediction if needed
+                if pred_y.shape != y.shape:
+                    y_resized = F.interpolate(y, size=pred_y.shape[-2:], mode='bilinear', align_corners=False)
+                else:
+                    y_resized = y
+                
+                loss = F.mse_loss(pred_y, y_resized)
                 
                 optimizer.zero_grad()
                 loss.backward()
@@ -271,7 +278,13 @@ def run_rollout_evaluation(checkpoint_path, config_path="configs/darcy.yaml", ou
                 z = model.encoder(x_input)
                 pred_y = pred_head(z)
                 
-                error = relative_l2(pred_y, y)
+                # Resize for comparison if needed
+                if pred_y.shape != y.shape:
+                    y_resized = F.interpolate(y, size=pred_y.shape[-2:], mode='bilinear', align_corners=False)
+                else:
+                    y_resized = y
+                
+                error = relative_l2(pred_y, y_resized)
                 total_error += error.item()
                 count += 1
         
