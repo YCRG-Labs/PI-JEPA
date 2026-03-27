@@ -273,6 +273,115 @@ def plot_improvement_bars(
     return output_path
 
 
+def save_results_csv(
+    results: Dict[str, Dict[int, float]],
+    output_dir: str = "outputs/data_efficiency"
+) -> List[str]:
+    """
+    Save results as CSV files for later figure generation.
+    
+    Args:
+        results: Results dict from data efficiency evaluation
+        output_dir: Directory to save CSV files
+        
+    Returns:
+        List of paths to saved CSV files
+    """
+    import csv
+    
+    os.makedirs(output_dir, exist_ok=True)
+    saved_files = []
+    
+    # 1. Save main results table (n_labeled x models)
+    main_csv = os.path.join(output_dir, "data_efficiency_results.csv")
+    
+    # Get all n_labeled values and models
+    all_n_labeled = sorted(set(
+        n for model_name, model_results in results.items()
+        if isinstance(model_results, dict) and not model_name.startswith('_')
+        for n in model_results.keys()
+        if isinstance(n, (int, float))
+    ))
+    
+    models = [m for m in results.keys() if not m.startswith('_') and isinstance(results[m], dict)]
+    
+    with open(main_csv, 'w', newline='') as f:
+        writer = csv.writer(f)
+        # Header
+        writer.writerow(['n_labeled'] + models)
+        # Data rows
+        for n in all_n_labeled:
+            row = [n]
+            for model in models:
+                error = results[model].get(n, '')
+                row.append(error)
+            writer.writerow(row)
+    
+    print(f"Saved results table to: {main_csv}")
+    saved_files.append(main_csv)
+    
+    # 2. Save improvement percentages
+    if 'pi_jepa' in results:
+        improvement_csv = os.path.join(output_dir, "improvement_over_baselines.csv")
+        
+        with open(improvement_csv, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['n_labeled', 'baseline', 'pi_jepa_error', 'baseline_error', 'improvement_pct'])
+            
+            for model_name, model_results in results.items():
+                if model_name == 'pi_jepa' or model_name.startswith('_'):
+                    continue
+                if not isinstance(model_results, dict):
+                    continue
+                
+                for n_labeled in sorted(model_results.keys()):
+                    if n_labeled in results['pi_jepa']:
+                        pijepa_error = results['pi_jepa'][n_labeled]
+                        baseline_error = model_results[n_labeled]
+                        if baseline_error > 0:
+                            improvement = (baseline_error - pijepa_error) / baseline_error * 100
+                            writer.writerow([n_labeled, model_name, pijepa_error, baseline_error, improvement])
+        
+        print(f"Saved improvement data to: {improvement_csv}")
+        saved_files.append(improvement_csv)
+    
+    # 3. Save summary statistics
+    summary_csv = os.path.join(output_dir, "summary_statistics.csv")
+    
+    with open(summary_csv, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['model', 'avg_error', 'min_error', 'max_error', 'avg_improvement_vs_pi_jepa'])
+        
+        for model_name, model_results in results.items():
+            if model_name.startswith('_') or not isinstance(model_results, dict):
+                continue
+            
+            errors = list(model_results.values())
+            avg_error = sum(errors) / len(errors) if errors else 0
+            min_error = min(errors) if errors else 0
+            max_error = max(errors) if errors else 0
+            
+            # Calculate improvement vs PI-JEPA
+            if model_name != 'pi_jepa' and 'pi_jepa' in results:
+                improvements = []
+                for n in model_results.keys():
+                    if n in results['pi_jepa']:
+                        baseline_error = model_results[n]
+                        pijepa_error = results['pi_jepa'][n]
+                        if baseline_error > 0:
+                            improvements.append((baseline_error - pijepa_error) / baseline_error * 100)
+                avg_improvement = sum(improvements) / len(improvements) if improvements else 0
+            else:
+                avg_improvement = 0
+            
+            writer.writerow([model_name, avg_error, min_error, max_error, avg_improvement])
+    
+    print(f"Saved summary statistics to: {summary_csv}")
+    saved_files.append(summary_csv)
+    
+    return saved_files
+
+
 def generate_all_visualizations(
     results: Dict[str, Dict[int, float]],
     output_dir: str = "outputs/data_efficiency"
@@ -558,10 +667,18 @@ def run_full_pipeline(
         )
         results['data_efficiency'] = eval_results
         
-        # Phase 3: Visualization
+        # Always save CSV data for later figure generation
+        print("\n" + "=" * 60)
+        print("PHASE 4: Saving Results Data")
+        print("=" * 60)
+        
+        csv_files = save_results_csv(eval_results, eval_dir)
+        results['csv_files'] = csv_files
+        
+        # Phase 5: Visualization (optional)
         if visualize:
             print("\n" + "=" * 60)
-            print("PHASE 4: Generating Visualizations")
+            print("PHASE 5: Generating Visualizations")
             print("=" * 60)
             
             figures = generate_all_visualizations(eval_results, eval_dir)
@@ -573,11 +690,17 @@ def run_full_pipeline(
         results_path = os.path.join(eval_dir, "benchmark_comparison.json")
         existing_results = load_existing_results(results_path)
         
-        if existing_results and visualize:
-            print("\nGenerating visualizations from existing results...")
-            figures = generate_all_visualizations(existing_results, eval_dir)
-            results['figures'] = figures
+        if existing_results:
             results['data_efficiency'] = existing_results
+            
+            # Save CSV from existing results
+            csv_files = save_results_csv(existing_results, eval_dir)
+            results['csv_files'] = csv_files
+            
+            if visualize:
+                print("\nGenerating visualizations from existing results...")
+                figures = generate_all_visualizations(existing_results, eval_dir)
+                results['figures'] = figures
     
     # Summary
     print("\n" + "=" * 60)
@@ -594,8 +717,11 @@ def run_full_pipeline(
                 avg_error = sum(model_results.values()) / len(model_results)
                 print(f"  {model}: avg error = {avg_error:.4f}")
     
+    if 'csv_files' in results:
+        print(f"\nSaved {len(results['csv_files'])} CSV file(s) for figure generation")
+    
     if 'figures' in results:
-        print(f"\nGenerated {len(results['figures'])} visualization(s)")
+        print(f"Generated {len(results['figures'])} visualization(s)")
     
     return results
 
@@ -687,13 +813,13 @@ Examples:
     parser.add_argument(
         "--visualize",
         action="store_true",
-        default=True,
-        help="Generate visualization plots (default: True)"
+        default=False,
+        help="Generate visualization plots (default: False, saves CSV data only)"
     )
     parser.add_argument(
         "--no-visualize",
         action="store_true",
-        help="Disable visualization"
+        help="Disable visualization (deprecated, visualizations are off by default)"
     )
     parser.add_argument(
         "--visualize-only",
