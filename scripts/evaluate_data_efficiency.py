@@ -316,7 +316,8 @@ class DataEfficiencyEvaluator:
         self,
         encoder: nn.Module,
         train_loader: DataLoader,
-        n_labeled: int
+        n_labeled: int,
+        full_finetune: bool = False
     ) -> nn.Module:
         """
         Finetune PI-JEPA on n_labeled samples.
@@ -324,21 +325,32 @@ class DataEfficiencyEvaluator:
         Validates: AC 6.1 - Train PI-JEPA with pretraining + finetuning on N_l labeled
         
         Args:
-            encoder: Pretrained encoder (will be frozen)
+            encoder: Pretrained encoder (will be frozen unless full_finetune=True)
             train_loader: Training data loader
             n_labeled: Number of labeled samples to use
+            full_finetune: If True, also finetune the encoder (not just prediction head)
             
         Returns:
             Trained prediction head
         """
-        # Freeze encoder
-        encoder.eval()
-        for param in encoder.parameters():
-            param.requires_grad = False
+        # Check if full finetuning is enabled
+        finetuning_cfg = self.config.get("finetuning", {})
+        full_finetune = full_finetune or finetuning_cfg.get("full_finetune", {}).get("enabled", False)
+        
+        if full_finetune:
+            # Unfreeze encoder for full finetuning
+            encoder.train()
+            for param in encoder.parameters():
+                param.requires_grad = True
+            print("  [PI-JEPA] Full finetuning enabled (encoder unfrozen)")
+        else:
+            # Freeze encoder
+            encoder.eval()
+            for param in encoder.parameters():
+                param.requires_grad = False
         
         # Build prediction head
         encoder_cfg = self.config.get("model", {}).get("encoder", {})
-        finetuning_cfg = self.config.get("finetuning", {})
         head_cfg = finetuning_cfg.get("prediction_head", {})
         
         embed_dim = encoder_cfg.get("embed_dim", 384)
@@ -358,16 +370,28 @@ class DataEfficiencyEvaluator:
         # Limit dataset
         limited_loader = self._limit_dataset(train_loader, n_labeled)
         
-        # Optimizer
-        optimizer = torch.optim.AdamW(
-            prediction_head.parameters(),
-            lr=self.finetune_lr
-        )
+        # Optimizer - include encoder if full finetuning
+        if full_finetune:
+            encoder_lr = self.finetune_lr * finetuning_cfg.get("full_finetune", {}).get("encoder_lr_multiplier", 0.1)
+            optimizer = torch.optim.AdamW([
+                {'params': prediction_head.parameters(), 'lr': self.finetune_lr},
+                {'params': encoder.parameters(), 'lr': encoder_lr}
+            ])
+        else:
+            optimizer = torch.optim.AdamW(
+                prediction_head.parameters(),
+                lr=self.finetune_lr
+            )
         
         # Training loop
         prediction_head.train()
         
+        # Debug: check shapes on first batch
+        first_batch = True
+        
         for epoch in range(self.finetune_epochs):
+            epoch_loss = 0.0
+            n_batches = 0
             for batch in limited_loader:
                 x, y = self._prepare_batch(batch)
                 
@@ -376,11 +400,23 @@ class DataEfficiencyEvaluator:
                 with torch.no_grad():
                     z = encoder(x)
                 
+                if first_batch:
+                    print(f"  [PI-JEPA] Input shape: {x.shape}, Target shape: {y.shape}")
+                    print(f"  [PI-JEPA] Encoder output shape: {z.shape}")
+                    first_batch = False
+                
                 y_pred = prediction_head(z)
                 loss = F.mse_loss(y_pred, y)
                 
                 loss.backward()
                 optimizer.step()
+                
+                epoch_loss += loss.item()
+                n_batches += 1
+            
+            if (epoch + 1) % 20 == 0 or epoch == 0:
+                avg_loss = epoch_loss / max(n_batches, 1)
+                print(f"  [PI-JEPA] Epoch {epoch+1}/{self.finetune_epochs} Loss: {avg_loss:.6f}")
         
         return prediction_head
     

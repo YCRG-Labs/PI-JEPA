@@ -280,7 +280,7 @@ finetuning:
   
   # Full finetuning option (unfreeze encoder)
   full_finetune:
-    enabled: false  # Set to true to unfreeze encoder
+    enabled: true  # Enable full finetuning to adapt encoder to downstream task
     encoder_lr_multiplier: 0.1  # Lower LR for encoder if unfrozen
   
   # Checkpointing
