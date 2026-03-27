@@ -38,7 +38,7 @@ from torch.utils.data import DataLoader, Subset, TensorDataset
 # Add PI-JEPA directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "PI-JEPA"))
 
-from models import ViTEncoder, PredictionHead
+from models import ViTEncoder, PredictionHead, build_encoder
 from utils import load_config
 from benchmarks import FNOWrapper, DeepONetWrapper
 from benchmarks.utils import set_seed, BenchmarkConfig, BenchmarkTrainer
@@ -475,8 +475,8 @@ class DataEfficiencyEvaluator:
         Returns:
             Tuple of (encoder, prediction_head)
         """
-        # Build fresh encoder
-        encoder = ViTEncoder(self.config, in_channels=1).to(self.device)
+        # Build fresh encoder using factory
+        encoder = build_encoder(self.config, in_channels=1).to(self.device)
         encoder.train()
         
         # Build prediction head
@@ -980,8 +980,8 @@ def load_pretrained_encoder(
     if checkpoint_type != 'pretraining':
         print(f"Warning: Expected pretraining checkpoint, got '{checkpoint_type}'")
     
-    # Build encoder with single channel (matching pretraining)
-    encoder = ViTEncoder(config, in_channels=1).to(device)
+    # Build encoder using factory (supports vit, fourier, multiscale_fourier)
+    encoder = build_encoder(config, in_channels=1).to(device)
     
     # Load weights
     if 'encoder_state_dict' in checkpoint:

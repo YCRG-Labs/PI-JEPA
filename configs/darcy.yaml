@@ -56,6 +56,7 @@ model:
   num_predictors: 2  # K=2 for Darcy, K=3 for reactive transport
   
   encoder:
+    type: fourier  # Options: vit, fourier, multiscale_fourier
     embed_dim: 384
     patch_size: 8
     image_size: 64  # Match data grid_size
@@ -67,6 +68,14 @@ model:
     drop_path: 0.1
     residual_scale: 1.0
     in_channels: 2  # 1 for pretraining (coefficient only), 2 for legacy (solution + coefficient)
+    
+    # Fourier encoder specific settings
+    fourier:
+      hidden_channels: 64
+      n_layers: 4
+      modes: [16, 16]  # Fourier modes to keep
+      use_attention: true
+      n_attention_layers: 2
   
   predictor:
     stages:

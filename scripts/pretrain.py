@@ -41,7 +41,7 @@ from torch.utils.data import DataLoader
 # Add PI-JEPA directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "PI-JEPA"))
 
-from models import ViTEncoder, Predictor, PIJEPA, Decoder
+from models import ViTEncoder, Predictor, PIJEPA, Decoder, build_encoder
 from training import (
     SpatialBlockMasker,
     build_spatial_block_masker,
@@ -614,9 +614,9 @@ def build_model_for_pretraining(
     Returns:
         Tuple of (PIJEPA model, Decoder)
     """
-    # Build encoder with single channel input for pretraining
-    encoder = ViTEncoder(config, in_channels=1).to(device)
-    target_encoder = ViTEncoder(config, in_channels=1).to(device)
+    # Build encoder using factory (supports vit, fourier, multiscale_fourier)
+    encoder = build_encoder(config, in_channels=1).to(device)
+    target_encoder = build_encoder(config, in_channels=1).to(device)
     
     # Build predictors
     predictors = [
