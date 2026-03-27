@@ -71,11 +71,11 @@ model:
     
     # Fourier encoder specific settings
     fourier:
-      hidden_channels: 64
-      n_layers: 4
-      modes: [16, 16]  # Fourier modes to keep
+      hidden_channels: 128  # Increased from 64
+      n_layers: 6  # Increased from 4
+      modes: [32, 32]  # Increased from [16, 16] - capture more frequencies
       use_attention: true
-      n_attention_layers: 2
+      n_attention_layers: 4  # Increased from 2
   
   predictor:
     stages:
@@ -279,7 +279,7 @@ finetuning:
   
   # Prediction head settings
   prediction_head:
-    hidden_dim: 512
+    hidden_dim: 768  # Increased from 512
     output_channels: 1
   
   # Optimizer (only for prediction head when encoder frozen)

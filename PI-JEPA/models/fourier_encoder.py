@@ -75,7 +75,7 @@ class SpectralConv2d(nn.Module):
 
 
 class FourierBlock(nn.Module):
-    """Combined Fourier + local convolution block."""
+    """Combined Fourier + local convolution block with residual connection."""
     
     def __init__(
         self,
@@ -92,22 +92,32 @@ class FourierBlock(nn.Module):
         self.local = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
         
         # Combine and normalize
-        self.norm = nn.GroupNorm(8, channels)
+        self.norm1 = nn.GroupNorm(min(8, channels), channels)
         
-        # MLP
+        # MLP with larger expansion
         hidden = int(channels * mlp_ratio)
         self.mlp = nn.Sequential(
             nn.Conv2d(channels, hidden, 1),
             nn.GELU(),
             nn.Conv2d(hidden, channels, 1)
         )
-        self.norm2 = nn.GroupNorm(8, channels)
+        self.norm2 = nn.GroupNorm(min(8, channels), channels)
+        
+        # Learnable residual scale
+        self.gamma1 = nn.Parameter(torch.ones(1) * 0.1)
+        self.gamma2 = nn.Parameter(torch.ones(1) * 0.1)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Spectral + local paths
-        x = x + self.norm(self.spectral(x) + self.local(x))
-        # MLP
-        x = x + self.norm2(self.mlp(x))
+        # Spectral + local paths with residual
+        residual = x
+        x = self.norm1(self.spectral(x) + self.local(x))
+        x = residual + self.gamma1 * x
+        
+        # MLP with residual
+        residual = x
+        x = self.norm2(self.mlp(x))
+        x = residual + self.gamma2 * x
+        
         return x
 
 
@@ -178,11 +188,14 @@ class FourierJEPAEncoder(nn.Module):
         self.use_attention = fourier_cfg.get("use_attention", True)
         self.n_attention_layers = fourier_cfg.get("n_attention_layers", 2)
         
-        # 1. Lift to hidden dimension
+        # 1. Lift to hidden dimension with better initialization
         self.lift = nn.Sequential(
-            nn.Conv2d(in_channels, self.hidden_channels, kernel_size=3, padding=1),
+            nn.Conv2d(in_channels, self.hidden_channels // 2, kernel_size=3, padding=1),
             nn.GELU(),
-            nn.GroupNorm(8, self.hidden_channels)
+            nn.GroupNorm(min(8, self.hidden_channels // 2), self.hidden_channels // 2),
+            nn.Conv2d(self.hidden_channels // 2, self.hidden_channels, kernel_size=3, padding=1),
+            nn.GELU(),
+            nn.GroupNorm(min(8, self.hidden_channels), self.hidden_channels)
         )
         
         # 2. Fourier blocks
