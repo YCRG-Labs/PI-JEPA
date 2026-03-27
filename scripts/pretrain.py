@@ -384,6 +384,15 @@ class SelfSupervisedPretrainer:
         else:
             z_decoded_coeff = z_decoded
         
+        # Interpolate decoded output to match input resolution if needed
+        if z_decoded_coeff.shape[-2:] != coefficient_field.shape[-2:]:
+            z_decoded_coeff = F.interpolate(
+                z_decoded_coeff, 
+                size=coefficient_field.shape[-2:], 
+                mode='bilinear', 
+                align_corners=False
+            )
+        
         recon_loss = F.mse_loss(z_decoded_coeff, coefficient_field)
         
         # Smoothness constraint (Laplacian regularization)
