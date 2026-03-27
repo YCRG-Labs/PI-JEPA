@@ -1725,6 +1725,32 @@ class UnlabeledDarcyDataset(Dataset):
         
         return x
     
+    def _load_from_generated(self, train_path: str, test_path: str) -> torch.Tensor:
+        """
+        Load coefficient field from generated Darcy data files.
+        
+        Args:
+            train_path: Path to darcy_train.pt
+            test_path: Path to darcy_test.pt
+            
+        Returns:
+            Coefficient field tensor (N, 1, H, W)
+        """
+        if self.split in ('train', 'pretrain', 'finetune'):
+            data = torch.load(train_path, weights_only=False)
+        else:
+            data = torch.load(test_path, weights_only=False)
+        
+        # 'x' contains coefficient fields (N, 1, H, W)
+        x = data['x']
+        
+        # Compute split indices
+        n_total = x.shape[0]
+        self._compute_split_indices(n_total)
+        x = x[self._start_idx:self._end_idx]
+        
+        return x
+    
     def _load_from_neuralop(self) -> torch.Tensor:
         """Load coefficient field from neuralop's darcy_flow_small dataset."""
         try:
@@ -1790,6 +1816,7 @@ class UnlabeledDarcyDataset(Dataset):
         Load coefficient field data.
         
         Supports multiple formats:
+        - Generated .pt files (data/darcy/darcy_train.pt, darcy_test.pt)
         - HDF5 files (.h5, .hdf5)
         - NPZ files (.npz)
         - neuralop's darcy_flow_small (if path is empty or directory)
@@ -1797,25 +1824,46 @@ class UnlabeledDarcyDataset(Dataset):
         if self._loaded:
             return
         
+        # First, check for generated data in data/darcy directory
+        generated_train = os.path.join("data", "darcy", "darcy_train.pt")
+        generated_test = os.path.join("data", "darcy", "darcy_test.pt")
+        
+        if os.path.exists(generated_train) and os.path.exists(generated_test):
+            print(f"Loading from generated data: {generated_train}")
+            self._data = self._load_from_generated(generated_train, generated_test)
         # Determine file type and load accordingly
-        if self.path and os.path.isfile(self.path):
+        elif self.path and os.path.isfile(self.path):
             if self.path.endswith(('.h5', '.hdf5')):
                 self._data = self._load_from_hdf5(self.path)
             elif self.path.endswith('.npz'):
                 self._data = self._load_from_npz(self.path)
+            elif self.path.endswith('.pt'):
+                # Single .pt file - load directly
+                data = torch.load(self.path, weights_only=False)
+                self._data = data['x']
+                n_total = self._data.shape[0]
+                self._compute_split_indices(n_total)
+                self._data = self._data[self._start_idx:self._end_idx]
             else:
                 raise ValueError(
                     f"Unsupported file format: {self.path}. "
-                    f"Supported formats: .h5, .hdf5, .npz"
+                    f"Supported formats: .h5, .hdf5, .npz, .pt"
                 )
         elif self.path and os.path.isdir(self.path):
-            # Check for NPZ files in directory (existing PI-JEPA format)
-            npz_file = os.path.join(self.path, f"{self.split}.npz")
-            if os.path.exists(npz_file):
-                self._data = self._load_from_npz(npz_file)
+            # Check for generated .pt files in directory
+            train_pt = os.path.join(self.path, "darcy_train.pt")
+            test_pt = os.path.join(self.path, "darcy_test.pt")
+            if os.path.exists(train_pt) and os.path.exists(test_pt):
+                print(f"Loading from generated data: {train_pt}")
+                self._data = self._load_from_generated(train_pt, test_pt)
             else:
-                # Try neuralop format
-                self._data = self._load_from_neuralop()
+                # Check for NPZ files in directory (existing PI-JEPA format)
+                npz_file = os.path.join(self.path, f"{self.split}.npz")
+                if os.path.exists(npz_file):
+                    self._data = self._load_from_npz(npz_file)
+                else:
+                    # Try neuralop format
+                    self._data = self._load_from_neuralop()
         elif self.path and not os.path.exists(self.path):
             # Path specified but doesn't exist - fall back to neuralop
             print(f"Info: Path '{self.path}' not found, using neuralop auto-download")

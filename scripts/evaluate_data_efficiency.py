@@ -137,6 +137,42 @@ class DataEfficiencyEvaluator:
         data_cfg = self.config.get("data", {})
         resolution = data_cfg.get("grid_size", 64)
         
+        # First, check for generated data in data/darcy directory
+        generated_train = os.path.join("data", "darcy", "darcy_train.pt")
+        generated_test = os.path.join("data", "darcy", "darcy_test.pt")
+        
+        if os.path.exists(generated_train) and os.path.exists(generated_test):
+            print(f"Loading from generated data: {generated_train}")
+            
+            train_data = torch.load(generated_train, weights_only=False)
+            test_data = torch.load(generated_test, weights_only=False)
+            
+            # x: coefficient field, y: solution field
+            x_train = train_data['x'][:n_train]  # (N, 1, H, W)
+            y_train = train_data['y'][:n_train]  # (N, 1, H, W)
+            x_test = test_data['x'][:n_test]
+            y_test = test_data['y'][:n_test]
+            
+            print(f"  Train: {x_train.shape}, Test: {x_test.shape}")
+            
+            train_dataset = TensorDataset(x_train, y_train)
+            test_dataset = TensorDataset(x_test, y_test)
+            
+            train_loader = DataLoader(
+                train_dataset,
+                batch_size=self.batch_size,
+                shuffle=True,
+                generator=torch.Generator().manual_seed(self.seed)
+            )
+            test_loader = DataLoader(
+                test_dataset,
+                batch_size=self.batch_size,
+                shuffle=False
+            )
+            
+            return train_loader, test_loader
+        
+        # Fall back to neuralop
         try:
             try:
                 from neuralop.data.datasets import load_darcy_flow_small

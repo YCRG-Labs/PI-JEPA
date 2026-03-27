@@ -31,12 +31,12 @@ experiment:
 data:
   dataset: ufno_co2  # ufno_co2, pdebench_adr, spe10, navier_stokes
   path: ""  # Empty string to use neuralop auto-download, or specify local path
-  grid_size: 16  # neuralop darcy_flow_small training data is 16x16
+  grid_size: 64  # 64x64 resolution for proper masking (8x8 grid of patches)
   sequence_length: 2
   stride: 1
   normalize: true
   include_coeff: true
-  num_patches: 4  # (grid_size / patch_size)^2 = (16/8)^2 = 4
+  num_patches: 64  # (grid_size / patch_size)^2 = (64/8)^2 = 64
   
   channels:
     u: 0  # Solution field channel
@@ -58,7 +58,7 @@ model:
   encoder:
     embed_dim: 384
     patch_size: 8
-    image_size: 16  # Match data grid_size
+    image_size: 64  # Match data grid_size
     depth: 8
     heads: 8
     mlp_ratio: 4.0
@@ -92,7 +92,7 @@ model:
 decoder:
   embed_dim: 384
   out_channels: 2
-  image_size: 16  # Match data grid_size
+  image_size: 64  # Match data grid_size
   patch_size: 8
 
 # -----------------------------------------------------------------------------
@@ -221,7 +221,7 @@ pretraining:
   masking:
     context_ratio: 0.65  # ~65% context patches
     min_block_size: 1  # Minimum target block size in patches
-    max_block_size: 1  # Maximum target block size in patches (for 2x2 grid)
+    max_block_size: 4  # Maximum target block size in patches (for 8x8 grid)
   
   # Physics residual (optional during pretraining)
   physics:
