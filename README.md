@@ -2,7 +2,7 @@ Code Associated With:
 
 ## PI-JEPA: A Physics-Informed Joint Embedding Predictive Architecture for Multi-Step Coupled PDE Surrogate Modeling
 
-#### Brandon Yee,<sup>*1</sup> Pairie Koh<sup>1,2</sup> Ryan Gomez<sup>1</sup>
+#### Brandon Yee,<sup>*1</sup> Pairie Koh<sup>1,2</sup>
 
 <sup>1</sup> Physics Lab, Yee Collins Research Group
 
@@ -12,78 +12,162 @@ Code Associated With:
 
 ---
 
+### Quick Start
+
+```bash
+# Setup environment
+./setup.sh
+source .venv/bin/activate
+
+# Run full analysis pipeline
+python scripts/run_self_supervised_pipeline.py --config configs/darcy.yaml --output outputs
+```
+
+This runs:
+1. Self-supervised pretraining (500 epochs)
+2. Data efficiency evaluation comparing PI-JEPA vs baselines (FNO, GeoFNO, DeepONet)
+
+Results saved to `outputs/data_efficiency/benchmark_comparison.json`
+
+---
+
 ### Structure
 
 ```
 PI-JEPA/          # Core library code
-├── models/       # PIJEPA, encoder, decoder, predictor
-├── training/     # Loss functions, EMA, training engine
-├── data/         # Dataset and preprocessing
+├── models/       # PIJEPA, encoder, decoder, predictor, prediction_head
+├── training/     # Loss functions, EMA, training engine, masking, pretrainer
+├── data/         # Dataset and preprocessing (including unlabeled data loader)
 ├── eval/         # Metrics and rollout evaluation
 ├── physics/      # Physics-informed loss (Darcy flow)
 ├── utils/        # Config, logging, checkpointing
 └── benchmarks/   # Baseline model wrappers (FNO, DeepONet, etc.)
 
 scripts/          # Runnable scripts
-├── train.py      # Train PI-JEPA model
-└── benchmark.py  # Run benchmark comparisons
+├── run_self_supervised_pipeline.py  # Main entry point - runs full analysis
+├── pretrain.py                      # Self-supervised pretraining
+├── finetune.py                      # Supervised finetuning
+└── evaluate_data_efficiency.py      # Data efficiency comparison
 
 configs/          # Configuration files
-├── darcy.yaml    # Main training config
-├── ablation.yaml # Ablation study configs
-└── benchmark.yaml # Benchmark config
+├── darcy.yaml    # Main config with pretraining/finetuning settings
+└── ablation.yaml # Ablation study configs
+
+outputs/          # Generated outputs
+├── pretrain/     # Pretraining checkpoints
+├── finetune/     # Finetuning checkpoints
+└── data_efficiency/  # Benchmark comparison results
 ```
+
+---
 
 ### Usage
 
-**Sanity Check:**
+#### Full Pipeline (Recommended)
+
 ```bash
-python scripts/run_experiments.py --sanity-check
+python scripts/run_self_supervised_pipeline.py --config configs/darcy.yaml --output outputs
 ```
 
-**Quick Start - Run Everything:**
+CLI options:
+- `--config`: Path to configuration file (default: configs/darcy.yaml)
+- `--output`: Output directory (default: outputs)
+- `--skip-pretrain`: Skip pretraining if checkpoint exists
+- `--pretrain-checkpoint`: Use existing pretraining checkpoint
+- `--n-unlabeled`: Override N_u from config
+- `--n-labeled`: Override N_l sweep (e.g., `--n-labeled 10 25 50 100`)
+- `--baselines`: Baseline models (default: fno geo_fno deeponet)
+
+#### Step-by-Step (Manual)
+
+**1. Self-Supervised Pretraining**
 ```bash
-python scripts/run_experiments.py --all
+python scripts/pretrain.py --config configs/darcy.yaml --output outputs/pretrain
 ```
 
-**Or Step-by-Step (Recommended):**
-
-**1. Pretraining (~24-48 hours on GPU)**
+**2. Supervised Finetuning**
 ```bash
-python scripts/run_experiments.py --pretrain
-# Or directly:
-python scripts/train.py --config configs/darcy.yaml
+python scripts/finetune.py \
+    --pretrain-checkpoint outputs/pretrain/checkpoint_best.pt \
+    --config configs/darcy.yaml \
+    --n-labeled 100 \
+    --output outputs/finetune
 ```
-This trains PI-JEPA for 500 epochs with the paper specifications (batch 64, AdamW lr=1.5e-4, EMA τ: 0.99→0.999).
 
-**2. Fine-Tuning Data Efficiency Sweep (~6-12 hours)**
+**3. Data Efficiency Evaluation**
 ```bash
-python scripts/run_experiments.py --finetune --checkpoint outputs/checkpoint_final.pt
+python scripts/evaluate_data_efficiency.py \
+    --pretrain-checkpoint outputs/pretrain/checkpoint_best.pt \
+    --config configs/darcy.yaml \
+    --output outputs/data_efficiency
 ```
-Runs fine-tuning with N_l ∈ {10, 25, 50, 100, 250, 500} labeled samples to generate data efficiency curves.
 
-**3. Rollout Evaluation (~1-2 hours)**
-```bash
-python scripts/run_experiments.py --evaluate --checkpoint outputs/checkpoint_final.pt
-```
-Evaluates at horizons T ∈ {1, 5, 10, 20, 40} with noise annealing.
+---
 
-**4. Benchmark Comparison (~12-24 hours)**
-```bash
-python scripts/run_experiments.py --benchmark
-# Or directly:
-python scripts/benchmark.py --config configs/benchmark.yaml
-```
-Compares against FNO, PINO, GeoFNO, DeepONet, PINN, PI-LatentNO.
+### Configuration
 
-**5. Ablation Studies**
-```bash
-python scripts/run_experiments.py --ablation
-```
-Generates configs for ablating physics loss, variance/covariance regularization, and K ∈ {1, 2, 3}.
+Key settings in `configs/darcy.yaml`:
 
-**6. Generate Publication Figures**
-```bash
-python scripts/run_experiments.py --figures
+```yaml
+# Pretraining (self-supervised)
+pretraining:
+  epochs: 500           # Paper: 500 epochs
+  batch_size: 64        # Paper: batch size 64
+  n_unlabeled: 1000     # Unlabeled coefficient fields
+  
+  masking:
+    context_ratio: 0.65 # 65% context, 35% target
+  
+  physics:
+    weight: 0.1         # Physics loss weight
+    ramp_steps: 200     # Ramp over first 200 steps
+  
+  ema:
+    tau_start: 0.99     # EMA momentum start
+    tau_end: 0.999      # EMA momentum end
+
+# Finetuning (supervised)
+finetuning:
+  epochs: 100           # Paper: 100 epochs
+  freeze_encoder: true  # Freeze pretrained encoder
+  n_labeled_sweep: [10, 25, 50, 100, 250, 500]
+
+# Evaluation
+evaluation:
+  baselines: [fno, geo_fno, deeponet]
+  test_set_size: 200
 ```
-Creates data efficiency curves, error accumulation plots, and rollout comparisons.
+
+---
+
+### Requirements
+
+- Python 3.10+
+- PyTorch 2.0+
+- neuraloperator
+- numpy, scipy, pyyaml, h5py, pandas, matplotlib
+
+Install with:
+```bash
+./setup.sh
+```
+
+Or manually:
+```bash
+pip install torch torchvision neuraloperator numpy scipy pyyaml h5py pandas matplotlib
+```
+
+---
+
+### Paper Specifications
+
+| Parameter | Value |
+|-----------|-------|
+| Pretraining epochs | 500 |
+| Finetuning epochs | 100 |
+| Batch size | 64 |
+| Learning rate | 1.5×10⁻⁴ |
+| Weight decay | 5×10⁻² |
+| EMA momentum | 0.99 → 0.999 |
+| Physics weight | 0.1 |
+| Context ratio | 65% |

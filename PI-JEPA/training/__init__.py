@@ -10,6 +10,14 @@ from .schedules import (
     build_physics_weight_schedule,
     build_k3_physics_weights,
 )
+from .masking import SpatialBlockMasker, build_spatial_block_masker
+from .pretrainer import (
+    SelfSupervisedPretrainer,
+    VICRegLoss,
+    compute_jepa_loss,
+    build_model_for_pretraining,
+    build_unlabeled_dataloader,
+)
 
 __all__ = [
     "LossBuilder",
@@ -26,4 +34,11 @@ __all__ = [
     "build_ema_schedule",
     "build_physics_weight_schedule",
     "build_k3_physics_weights",
+    "SpatialBlockMasker",
+    "build_spatial_block_masker",
+    "SelfSupervisedPretrainer",
+    "VICRegLoss",
+    "compute_jepa_loss",
+    "build_model_for_pretraining",
+    "build_unlabeled_dataloader",
 ]

@@ -33,11 +33,20 @@ echo "Activated virtual environment"
 # ── Upgrade pip ─────────────────────────────────────────────────────────────
 pip install --upgrade pip
 
+# ── Install PyTorch (with CUDA if available) ────────────────────────────────
+echo "Installing PyTorch..."
+if command -v nvidia-smi &> /dev/null; then
+    echo "CUDA detected, installing PyTorch with CUDA support..."
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+else
+    echo "No CUDA detected, installing CPU-only PyTorch..."
+    pip install torch torchvision
+fi
+
 # ── Install dependencies ────────────────────────────────────────────────────
-echo "Installing dependencies ..."
+echo "Installing dependencies..."
 
 pip install \
-    torch \
     numpy \
     scipy \
     pyyaml \
@@ -53,7 +62,13 @@ echo "=== Setup complete ==="
 echo ""
 echo "Activate the environment with:"
 echo "  source $VENV_DIR/bin/activate      # Linux / macOS"
-echo "  source $VENV_DIR/Scripts/activate   # Windows (Git Bash)"
+echo "  source $VENV_DIR/Scripts/activate  # Windows (Git Bash)"
 echo ""
-echo "Quick start:"
-echo "  python scripts/run_experiments.py --sanity-check"
+echo "Run the full analysis pipeline:"
+echo "  python scripts/run_self_supervised_pipeline.py --config configs/darcy.yaml --output outputs"
+echo ""
+echo "This will:"
+echo "  1. Self-supervised pretraining (500 epochs)"
+echo "  2. Data efficiency evaluation vs baselines (FNO, GeoFNO, DeepONet)"
+echo ""
+echo "Results saved to: outputs/data_efficiency/benchmark_comparison.json"

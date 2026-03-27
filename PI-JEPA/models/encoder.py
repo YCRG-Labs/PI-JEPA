@@ -107,7 +107,14 @@ class Block(nn.Module):
 
 
 class ViTEncoder(nn.Module):
-    def __init__(self, config):
+    """Vision Transformer Encoder with configurable input channels.
+
+    Args:
+        config: Configuration dictionary containing model parameters
+        in_channels: Number of input channels. If None, reads from config
+                    (defaults to 2 for backward compatibility with legacy checkpoints)
+    """
+    def __init__(self, config, in_channels: int = None):
         super().__init__()
 
         enc_cfg = config["model"]["encoder"]
@@ -115,8 +122,17 @@ class ViTEncoder(nn.Module):
         self.embed_dim = enc_cfg["embed_dim"]
         self.patch_size = enc_cfg["patch_size"]
 
+        # Determine input channels:
+        # 1. Use explicit in_channels parameter if provided
+        # 2. Otherwise, read from config (encoder.in_channels)
+        # 3. Default to 2 for backward compatibility with existing checkpoints
+        if in_channels is not None:
+            self.in_channels = in_channels
+        else:
+            self.in_channels = enc_cfg.get("in_channels", 2)
+
         self.patch_embed = PatchEmbed(
-            in_channels=2,
+            in_channels=self.in_channels,
             embed_dim=self.embed_dim,
             patch_size=self.patch_size
         )
@@ -155,6 +171,48 @@ class ViTEncoder(nn.Module):
         x = self.norm(x)
 
         return x
+
+    def load_pretrained_weights(self, state_dict, strict: bool = False):
+        """Load pretrained weights with support for channel mismatch.
+
+        This method handles loading checkpoints trained with different input channels.
+        If the checkpoint was trained with 2 channels but the model expects 1 channel
+        (or vice versa), the patch embedding weights are adapted accordingly.
+
+        Args:
+            state_dict: State dictionary from checkpoint
+            strict: If True, raise error on shape mismatch. If False, adapt weights.
+
+        Returns:
+            Tuple of (missing_keys, unexpected_keys) from load_state_dict
+        """
+        # Check for patch embedding channel mismatch
+        if "patch_embed.proj.weight" in state_dict:
+            ckpt_weight = state_dict["patch_embed.proj.weight"]
+            ckpt_channels = ckpt_weight.shape[1]
+            model_channels = self.in_channels
+
+            if ckpt_channels != model_channels:
+                if strict:
+                    raise ValueError(
+                        f"Channel mismatch: checkpoint has {ckpt_channels} channels, "
+                        f"model expects {model_channels} channels"
+                    )
+
+                # Adapt weights for channel mismatch
+                if model_channels == 1 and ckpt_channels == 2:
+                    # Average the 2-channel weights to get 1-channel weights
+                    state_dict["patch_embed.proj.weight"] = ckpt_weight.mean(dim=1, keepdim=True)
+                elif model_channels == 2 and ckpt_channels == 1:
+                    # Duplicate 1-channel weights to get 2-channel weights
+                    state_dict["patch_embed.proj.weight"] = ckpt_weight.repeat(1, 2, 1, 1)
+                else:
+                    raise ValueError(
+                        f"Cannot adapt weights from {ckpt_channels} to {model_channels} channels"
+                    )
+
+        return self.load_state_dict(state_dict, strict=False)
+
 
 
 class TargetEncoder(nn.Module):

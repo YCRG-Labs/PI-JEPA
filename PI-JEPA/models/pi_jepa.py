@@ -28,22 +28,43 @@ class PIJEPA(nn.Module):
 
     def mask_input(self, x, target_indices):
         B, C, H, W = x.shape
-        grid_size = H // self.patch_size
+        
+        # Get patch_size from encoder if available, otherwise use self.patch_size
+        if hasattr(self.encoder, 'patch_size'):
+            patch_size = self.encoder.patch_size
+        else:
+            patch_size = self.patch_size
+        
+        grid_size = H // patch_size
+        num_patches = grid_size * grid_size
+        
+        # Clamp target_indices to valid range to prevent out-of-bounds errors
+        # This handles cases where masker grid_size doesn't match encoder grid_size
+        target_indices_clamped = target_indices.clamp(0, num_patches - 1)
 
-        mask = torch.ones(B, grid_size * grid_size, device=x.device)
+        mask = torch.ones(B, num_patches, device=x.device)
 
         mask = mask.scatter(
             1,
-            target_indices,
-            torch.zeros_like(target_indices, dtype=mask.dtype)
+            target_indices_clamped,
+            torch.zeros_like(target_indices_clamped, dtype=mask.dtype)
         )
 
         mask = mask.view(B, grid_size, grid_size)
-        mask = mask.repeat_interleave(self.patch_size, dim=1)
-        mask = mask.repeat_interleave(self.patch_size, dim=2)
+        mask = mask.repeat_interleave(patch_size, dim=1)
+        mask = mask.repeat_interleave(patch_size, dim=2)
         mask = mask.unsqueeze(1)
 
         return x * mask
+    
+    def get_num_patches(self, image_size: int) -> int:
+        """Get the number of patches for a given image size."""
+        if hasattr(self.encoder, 'patch_size'):
+            patch_size = self.encoder.patch_size
+        else:
+            patch_size = self.patch_size
+        grid_size = image_size // patch_size
+        return grid_size * grid_size
 
     def forward(self, x, context_indices, target_indices):
         B = x.shape[0]

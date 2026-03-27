@@ -8,6 +8,7 @@ from .loaders import (
     PDEBenchADRDataset,
     SPE10Dataset,
     NavierStokesDataset,
+    UnlabeledDarcyDataset,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "PDEBenchADRDataset",
     "SPE10Dataset",
     "NavierStokesDataset",
+    "UnlabeledDarcyDataset",
 ]

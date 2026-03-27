@@ -2,6 +2,7 @@ from .pi_jepa import PIJEPA
 from .encoder import ViTEncoder, TargetEncoder, update_ema
 from .decoder import Decoder
 from .predictor import Predictor, MultiStepPredictor, MultiSpeciesPredictor, ChannelMixingAttention
+from .prediction_head import PredictionHead
 
 __all__ = [
     "PIJEPA",
@@ -12,5 +13,6 @@ __all__ = [
     "MultiStepPredictor",
     "MultiSpeciesPredictor",
     "ChannelMixingAttention",
+    "PredictionHead",
     "update_ema",
 ]

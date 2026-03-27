@@ -30,13 +30,13 @@ experiment:
 # -----------------------------------------------------------------------------
 data:
   dataset: ufno_co2  # ufno_co2, pdebench_adr, spe10, navier_stokes
-  path: ./data/darcy/
-  grid_size: 64
+  path: ""  # Empty string to use neuralop auto-download, or specify local path
+  grid_size: 16  # neuralop darcy_flow_small training data is 16x16
   sequence_length: 2
   stride: 1
   normalize: true
   include_coeff: true
-  num_patches: 64
+  num_patches: 4  # (grid_size / patch_size)^2 = (16/8)^2 = 4
   
   channels:
     u: 0  # Solution field channel
@@ -58,7 +58,7 @@ model:
   encoder:
     embed_dim: 384
     patch_size: 8
-    image_size: 64
+    image_size: 16  # Match data grid_size
     depth: 8
     heads: 8
     mlp_ratio: 4.0
@@ -66,6 +66,7 @@ model:
     attention_dropout: 0.1
     drop_path: 0.1
     residual_scale: 1.0
+    in_channels: 2  # 1 for pretraining (coefficient only), 2 for legacy (solution + coefficient)
   
   predictor:
     stages:
@@ -91,7 +92,7 @@ model:
 decoder:
   embed_dim: 384
   out_channels: 2
-  image_size: 64
+  image_size: 16  # Match data grid_size
   patch_size: 8
 
 # -----------------------------------------------------------------------------
@@ -124,7 +125,7 @@ physics:
 # -----------------------------------------------------------------------------
 training:
   epochs: 500  # Paper: 500 epochs pretraining
-  batch_size: 64  # Paper: batch size 64
+  batch_size: 64
   
   optim:
     lr: 1.5e-4  # Paper: 1.5×10^-4
@@ -196,8 +197,101 @@ masking:
   context_ratio: 0.65
 
 # -----------------------------------------------------------------------------
-# Fine-Tuning Configuration
+# Pretraining Configuration (Self-Supervised)
 # -----------------------------------------------------------------------------
+# Self-supervised pretraining on unlabeled coefficient fields only.
+# Uses JEPA objective with spatial block masking.
+pretraining:
+  enabled: true
+  epochs: 500  # Paper: 500 epochs pretraining
+  batch_size: 64
+  
+  # Unlabeled data settings
+  n_unlabeled: 1000  # N_u: number of unlabeled coefficient fields
+  
+  # JEPA objective settings
+  jepa:
+    normalize_embeddings: true
+    stop_gradient_target: true
+  
+  # Masking settings (spatial block masking)
+  # For 16x16 images with 8x8 patches: 2x2 grid (4 patches)
+  # For 32x32 images with 8x8 patches: 4x4 grid (16 patches)
+  # For 64x64 images with 8x8 patches: 8x8 grid (64 patches)
+  masking:
+    context_ratio: 0.65  # ~65% context patches
+    min_block_size: 1  # Minimum target block size in patches
+    max_block_size: 1  # Maximum target block size in patches (for 2x2 grid)
+  
+  # Physics residual (optional during pretraining)
+  physics:
+    enabled: true  # Flag to enable/disable physics residual during pretraining
+    weight: 0.1  # Paper: λ_p = 0.1
+    ramp_steps: 200  # Paper: ramp over first 200 steps
+  
+  # VICReg regularization to prevent embedding collapse
+  vicreg:
+    variance_weight: 0.05
+    covariance_weight: 0.01
+  
+  # Optimizer settings
+  optim:
+    lr: 1.5e-4  # Paper: 1.5×10^-4
+    weight_decay: 5e-2  # Paper: 5×10^-2
+    betas: [0.9, 0.95]
+  
+  # EMA schedule for target encoder
+  ema:
+    tau_start: 0.99  # Paper: τ starts at 0.99
+    tau_end: 0.999  # Paper: τ ends at 0.999
+    warmup_fraction: 0.1  # Paper: over first 10% of epochs
+  
+  # Checkpointing
+  checkpoint:
+    save_interval: 50  # Save every N epochs
+    save_best: true  # Save best model based on loss
+
+# -----------------------------------------------------------------------------
+# Finetuning Configuration (Supervised)
+# -----------------------------------------------------------------------------
+# Supervised finetuning with frozen encoder and trainable prediction head.
+# Uses limited labeled (x, y) pairs for data efficiency evaluation.
+finetuning:
+  enabled: true
+  epochs: 100  # Paper: 100 epochs fine-tuning
+  batch_size: 32
+  
+  # Labeled data settings
+  n_labeled: 100  # N_l: number of labeled (x, y) pairs
+  n_labeled_sweep: [10, 25, 50, 100, 250, 500]  # For data efficiency evaluation
+  
+  # Encoder freezing
+  freeze_encoder: true  # Freeze encoder during finetuning
+  
+  # Prediction head settings
+  prediction_head:
+    hidden_dim: 512
+    output_channels: 1
+  
+  # Optimizer (only for prediction head when encoder frozen)
+  optim:
+    lr: 1e-3  # Higher LR for prediction head
+    weight_decay: 1e-4
+  
+  # Full finetuning option (unfreeze encoder)
+  full_finetune:
+    enabled: false  # Set to true to unfreeze encoder
+    encoder_lr_multiplier: 0.1  # Lower LR for encoder if unfrozen
+  
+  # Checkpointing
+  checkpoint:
+    save_interval: 20  # Save every N epochs
+    save_best: true  # Save best model based on validation loss
+
+# -----------------------------------------------------------------------------
+# Legacy Fine-Tuning Configuration (Deprecated)
+# -----------------------------------------------------------------------------
+# Kept for backward compatibility. Use 'finetuning' section above instead.
 finetune:
   epochs: 100  # Paper: 100 epochs fine-tuning
   lr: 1.5e-4  # Paper: same learning rate
@@ -225,6 +319,14 @@ evaluation:
     - per_channel_mse
     - ood_error
   ood_split: spe10
+  
+  # Data efficiency evaluation settings
+  data_efficiency:
+    enabled: true
+    n_labeled_sweep: [10, 25, 50, 100, 250, 500]  # Labeled sample counts to evaluate
+    baselines: [fno, geo_fno, deeponet]  # Baseline models to compare against
+    test_set_size: 200  # Number of test samples
+    output_file: benchmark_comparison.json  # Output file for results
 
 # -----------------------------------------------------------------------------
 # Visualization Configuration
