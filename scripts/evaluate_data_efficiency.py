@@ -458,6 +458,83 @@ class DataEfficiencyEvaluator:
         
         return self._compute_relative_l2(preds, targets)
     
+    def _train_pijepa_scratch(
+        self,
+        train_loader: DataLoader,
+        n_labeled: int
+    ) -> Tuple[nn.Module, nn.Module]:
+        """
+        Train PI-JEPA architecture from scratch (no pretraining).
+        
+        This provides a baseline to measure the benefit of pretraining.
+        
+        Args:
+            train_loader: Training data loader
+            n_labeled: Number of labeled samples to use
+            
+        Returns:
+            Tuple of (encoder, prediction_head)
+        """
+        # Build fresh encoder
+        encoder = ViTEncoder(self.config, in_channels=1).to(self.device)
+        encoder.train()
+        
+        # Build prediction head
+        encoder_cfg = self.config.get("model", {}).get("encoder", {})
+        finetuning_cfg = self.config.get("finetuning", {})
+        head_cfg = finetuning_cfg.get("prediction_head", {})
+        
+        embed_dim = encoder_cfg.get("embed_dim", 384)
+        hidden_dim = head_cfg.get("hidden_dim", 512)
+        output_channels = head_cfg.get("output_channels", 1)
+        image_size = encoder_cfg.get("image_size", 64)
+        patch_size = encoder_cfg.get("patch_size", 8)
+        
+        prediction_head = PredictionHead(
+            embed_dim=embed_dim,
+            hidden_dim=hidden_dim,
+            output_channels=output_channels,
+            image_size=image_size,
+            patch_size=patch_size
+        ).to(self.device)
+        
+        # Limit dataset
+        limited_loader = self._limit_dataset(train_loader, n_labeled)
+        
+        # Optimizer for both encoder and prediction head
+        optimizer = torch.optim.AdamW([
+            {'params': encoder.parameters(), 'lr': self.finetune_lr * 0.1},
+            {'params': prediction_head.parameters(), 'lr': self.finetune_lr}
+        ])
+        
+        # Training loop
+        encoder.train()
+        prediction_head.train()
+        
+        for epoch in range(self.finetune_epochs):
+            epoch_loss = 0.0
+            n_batches = 0
+            for batch in limited_loader:
+                x, y = self._prepare_batch(batch)
+                
+                optimizer.zero_grad()
+                
+                z = encoder(x)
+                y_pred = prediction_head(z)
+                loss = F.mse_loss(y_pred, y)
+                
+                loss.backward()
+                optimizer.step()
+                
+                epoch_loss += loss.item()
+                n_batches += 1
+            
+            if (epoch + 1) % 20 == 0 or epoch == 0:
+                avg_loss = epoch_loss / max(n_batches, 1)
+                print(f"  [PI-JEPA scratch] Epoch {epoch+1}/{self.finetune_epochs} Loss: {avg_loss:.6f}")
+        
+        return encoder, prediction_head
+    
     def _train_baseline(
         self,
         model_wrapper: Any,
@@ -707,7 +784,25 @@ class DataEfficiencyEvaluator:
             results["pi_jepa"][n_labeled] = pijepa_error
             print(f"  PI-JEPA relative L2 error: {pijepa_error:.6f}")
             
-            # 2. Train and evaluate baselines from scratch (AC 6.2)
+            # 2. Train PI-JEPA from scratch (no pretraining) for comparison
+            print("Training PI-JEPA from scratch (no pretraining)...")
+            set_seed(self.seed)
+            
+            scratch_encoder, scratch_head = self._train_pijepa_scratch(
+                train_loader,
+                n_labeled
+            )
+            scratch_error = self._evaluate_pijepa(
+                scratch_encoder,
+                scratch_head,
+                test_loader
+            )
+            if "pi_jepa_scratch" not in results:
+                results["pi_jepa_scratch"] = {}
+            results["pi_jepa_scratch"][n_labeled] = scratch_error
+            print(f"  PI-JEPA (scratch) relative L2 error: {scratch_error:.6f}")
+            
+            # 3. Train and evaluate baselines from scratch (AC 6.2)
             for baseline_name in baselines_to_run:
                 print(f"Training {baseline_name} from scratch...")
                 set_seed(self.seed)  # Reset seed for fair comparison
